@@ -33,6 +33,7 @@ EXTRACT_EMACS=false
 EXTRACT_GHOSTSCRIPT=false
 EXTRACT_GDB=false
 EXTRACT_SENDMAIL=false
+FULL_SPEC=false
 
 # Sources to be compiled
 SOURCES_JSON="sources/sources-redist2017.json"
@@ -209,7 +210,7 @@ done
 pushd sources
 if [ ${EXTRACT_ALL} = true ] || [ ${EXTRACT_SPEC} = true ]; then
 	echo "Extracting SPEC ."
-	if [ ${FULL_SPEC} ]; then
+	if [ ${FULL_SPEC} = true ]; then
 		if [ ! -f programs/cpu2017.tar.xz ]; then
 			echo "Not able to find 'programs/cpu2017.tar.xz'".
 			exit 1
