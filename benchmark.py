@@ -804,11 +804,11 @@ def main():
         bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization"]
         bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-        bench.jlm_opt_flags.extend(["--PredicateCorrelation", "--LoopUnswitching", "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
+        bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation", "--LoopUnswitching", "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         if args.agnosticModRef:
             bench.jlm_opt_flags.extend(["--AAAndersenAgnostic", "--print-agnostic-mod-ref-summarization", "--print-basicencoder-encoding"])
@@ -816,15 +816,15 @@ def main():
         if args.regionAwareModRef or args.useMem2reg:
             bench.jlm_opt_flags.extend(["--AAAndersenRegionAware", "--print-mod-ref-summarization", "--print-basicencoder-encoding"])
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         bench.jlm_opt_flags.append("--StoreValueForwarding")
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         bench.jlm_opt_flags.extend(["--LoadChainSeparation", "--CommonNodeElimination", "--InvariantValueRedirection", "--NodeReduction", "--DeadNodeElimination"])
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         # Disable linking
         bench.clang_link_flags = None
