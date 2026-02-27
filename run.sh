@@ -3,45 +3,14 @@ set -eu
 
 # This script is used for unpacking benchmarks and compiling benchmarks using jlm-opt.
 
-# Check if llvm-config of correct version exists in the PATH
-# and if found set the LLVM_BIN to llvm's bindir
-LLVM_VERSION=18
-LLVM_CONFIG_BIN=llvm-config-${LLVM_VERSION}
-if command -v ${LLVM_CONFIG_BIN} &> /dev/null
-then
-	LLVM_BIN=$(${LLVM_CONFIG_BIN} --bindir)
-else
-	LLVM_BIN=""
+# source .env if it exists
+if [ -f .env ]; then
+	source .env
 fi
 
-# Check if we can find jlm-opt
-if command -v ../../build/jlm-opt &> /dev/null
-then
-	JLM_OPT="--jlm-opt ../../build/jlm-opt"
-else
-	JLM_OPT=""
-fi
-
-# Used for executing only specific benchmarks
-EXTRA_BENCH_OPTIONS=""
-
-# Used to determine which benchmarks to extract
-FILTER_BENCHMARK=""
-EXTRACT_ALL=true
-EXTRACT_SPEC=false
-EXTRACT_EMACS=false
-EXTRACT_GHOSTSCRIPT=false
-EXTRACT_GDB=false
-EXTRACT_SENDMAIL=false
-FULL_SPEC=false
-
-# Sources to be compiled
-SOURCES_JSON="sources/sources-redist2017.json"
-
-# Parameters for deciding what the scripts should perform
-BUILD_JLM=false
-DRY_RUN=false
-CREATE_JSON=false
+# Assign defaults if not already specified as environment variables
+LLVM_CONFIG="${LLVM_CONFIG:-llvm-config-18}"
+JLM_OPT="${JLM_OPT:-${JLM_PATH:-../..}/build-release/jlm-opt}"
 
 # Execute benchmarks in parallel by default
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -50,40 +19,60 @@ else
   PARALLEL_INVOCATIONS=`nproc`
 fi
 
+# Options added to the final ./benchmark.py invocation
+EXTRA_BENCH_OPTIONS=""
+
+# Used to determine which benchmarks to extract
+EXTRACT_ALL=true
+EXTRACT_SPEC=false
+EXTRACT_EMACS=false
+EXTRACT_GHOSTSCRIPT=false
+EXTRACT_GDB=false
+EXTRACT_SENDMAIL=false
+
+# If true, a real copy of cpu2017 is used, instead of the included redist2017
+FULL_SPEC=false
+# Path to sources json file containing benchmark compilation descriptions
+SOURCES_JSON="sources/sources-redist2017.json"
+
+# Parameters for deciding what tasks the script should perform
+BUILD_JLM=false
+DRY_RUN=false
+CREATE_JSON=false
+
 function usage()
 {
-	echo "Usage: ./run-ci.sh [OPTION]"
+	echo "Usage: ./run.sh [OPTION]"
 	echo ""
-	echo "  --parallel #THREADS   The number of threads to run in parallel."
+	echo "  --parallel <threads>  The number of threads to run in parallel."
 	echo "                        Default=[${PARALLEL_INVOCATIONS}]"
-	echo "  --jlm-opt             Path to the jlm-opt binary."
+	echo "  --jlm-opt <path>      Specify the path to jlm-opt."
 	echo "                        Default=[${JLM_OPT}]"
-	echo "  --llvm-bin            Path to the llvm binary directory."
-	echo "                        Default=[${LLVM_BIN}]"
+	echo "  --llvm-config <path>  Path to the llvm config binary."
+	echo "                        Default=[${LLVM_CONFIG}]"
 	echo "  --build-jlm           Clone the jlm repository and build debug and release."
-	echo "  --full-spec           Use the full version of SPEC."
+	echo "                        Uses the given jlm-opt path to decide directory."
+	echo "  --full-spec           Use the full version of SPEC instead of redist2017. Requires cpu2017.tar.xz."
 	echo "  --dry-run             Do all setup except actually compiling benchmarks."
-	echo "  --create-json         Build selected benchmarks to re-create sources.json."
+	echo "  --create-json         Build selected benchmarks to re-create sources.json. Implies --full-spec"
 	echo "  --polybench           Compile polybench."
 	echo "  --spec                Extract and compile SPEC."
 	echo "  --emacs               Extract and compile emacs."
 	echo "  --ghostscript         Extract and compile ghostscript."
 	echo "  --gdb                 Extract and compile gdb."
 	echo "  --sendmail            Extract and compile sendmail."
-	echo "  --clean               Delete extracted sources and build files including jlm."
+	echo "  --clean               Delete extracted sources and build files."
 	echo "  --help                Prints this message and stops."
 }
 
 while [[ "$#" -ge 1 ]] ; do
 	case "$1" in
 		--clean)
-			echo "Deleting jlm-opt builds"
-			just clean-jlm-builds
 			echo "Deleting extracted sources"
 			just sources/programs/clean-all
 			echo "Removing all result files from previous runs of jlm-opt"
 			just purge
-			exit 1
+			exit 0
 			;;
 		--parallel)
 			shift
@@ -92,12 +81,12 @@ while [[ "$#" -ge 1 ]] ; do
 			;;
 		--jlm-opt)
 			shift
-			JLM_OPT="--jlm-opt $(readlink -m "$1")"
+			JLM_OPT="$(readlink -m "$1")"
 			shift
 			;;
 		--llvm-bin)
 			shift
-			LLVM_BIN=$(readlink -m "$1")
+			LLVM_BIN="$(readlink -m "$1")"
 			shift
 			;;
 		--build-jlm)
@@ -113,88 +102,89 @@ while [[ "$#" -ge 1 ]] ; do
 			shift
 			;;
 		--create-json)
+			FULL_SPEC=true
 			CREATE_JSON=true
 			shift
 			;;
 		--polybench)
-			FILTER_BENCHMARK="--filter=polybench"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=polybench"
 			EXTRACT_ALL=false
 			shift
 			;;
 		--spec)
-			FILTER_BENCHMARK="--filter=500\\.perlbench|502\\.gcc|507\\.cactuBSSN|525\\.x264|526\\.blender|538\\.imagick|544\\.nab|557\\.xz"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=500\\.perlbench|502\\.gcc|507\\.cactuBSSN|525\\.x264|526\\.blender|538\\.imagick|544\\.nab|557\\.xz"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--perlbench)
-			FILTER_BENCHMARK="--filter=500\\.perlbench"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=500\\.perlbench"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--gcc)
-			FILTER_BENCHMARK="--filter=502\\.gcc"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=502\\.gcc"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--cactuBSSN)
-			FILTER_BENCHMARK="--filter=507\\.cactuBSSN"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=507\\.cactuBSSN"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--x264)
-			FILTER_BENCHMARK="--filter=525\\.x264"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=525\\.x264"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--blender)
-			FILTER_BENCHMARK="--filter=526\\.blender"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=526\\.blender"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--imagick)
-			FILTER_BENCHMARK="--filter=538\\.imagick"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=538\\.imagick"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--nab)
-			FILTER_BENCHMARK="--filter=544\\.nab"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=544\\.nab"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--xz)
-			FILTER_BENCHMARK="--filter=557\\.xz"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=557\\.xz"
 			EXTRACT_SPEC=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--emacs)
-			FILTER_BENCHMARK="--filter=emacs"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=emacs"
 			EXTRACT_EMACS=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--ghostscript)
-			FILTER_BENCHMARK="--filter=ghostscript"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=ghostscript"
 			EXTRACT_GHOSTSCRIPT=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--gdb)
-			FILTER_BENCHMARK="--filter=gdb"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=gdb"
 			EXTRACT_GDB=true
 			EXTRACT_ALL=false
 			shift
 			;;
 		--sendmail)
-			FILTER_BENCHMARK="--filter=sendmail"
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=sendmail"
 			EXTRACT_SENDMAIL=true
 			EXTRACT_ALL=false
 			shift
@@ -254,13 +244,27 @@ if [[ ${CREATE_JSON} = true ]]; then
 fi
 popd
 
-# Build the jlm-opt binary
+# Build the jlm-opt binary if requested
 if [[ ${BUILD_JLM} = true ]]; then
-	echo "Building jlm-opt"
+	# Remove the build-*/jlm-opt part of the jlm-opt path to find the jlm path
+	if [[ "${JLM_OPT}" = */build*/jlm-opt ]]; then
+		export JLM_PATH="${JLM_OPT%/build*/jlm-opt}"
+		echo "Cloning and building jlm in location: ${JLM_PATH}"
+	else
+		echo "Unable to extract a jlm path from the jlm-opt path (${JLM_OPT}). Aborting."
+		exit 1
+	fi
+
 	just clone-jlm
 	just build-release
 	just build-debug
 fi
+
+if [ ${DRY_RUN} = true ]; then
+	EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --dry-run"
+fi
+
+LLVM_BIN="$(${LLVM_CONFIG} --bindir)"
 
 # Ensure Ctrl-C quits immediately, without starting the next command
 function sigint() {
@@ -270,16 +274,8 @@ function sigint() {
 trap sigint SIGINT
 
 echo "Starting benchmarking of jlm-opt"
-set +e
-
-if [ ${DRY_RUN} = true ]; then
-	EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --dry-run"
-fi
-
-EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} ${FILTER_BENCHMARK}"
-
 mkdir -p build statistics
-echo "./benchmark.py ${JLM_OPT} --llvmbin ${LLVM_BIN} --sources=${SOURCES_JSON} -j${PARALLEL_INVOCATIONS} ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci"
-./benchmark.py ${JLM_OPT} --llvmbin ${LLVM_BIN} --sources=${SOURCES_JSON} -j${PARALLEL_INVOCATIONS} ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
 
-exit 0
+# Enable echoing commands to print the final benchmark.py invocation
+set -x
+./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci

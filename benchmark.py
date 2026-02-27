@@ -23,11 +23,8 @@ class TaskSubprocessError(Exception):
     pass
 
 class Options:
-    DEFAULT_LLVM_BINDIR = "/usr/local/lib/llvm18/bin/"
-    DEFAULT_SOURCES = "sources/sources.json"
     DEFAULT_BUILD_DIR = "build/default/"
     DEFAULT_STATS_DIR = "statistics/default/"
-    DEFAULT_JLM_OPT = "../jlm/build-release/jlm-opt"
     DEFAULT_JLM_OPT_VERBOSITY = 1
 
     def __init__(self, llvm_bindir, build_dir, stats_dir, jlm_opt, jlm_opt_verbosity, timeout):
@@ -688,21 +685,22 @@ def intOrNone(value):
 
 def main():
     parser = argparse.ArgumentParser(description='Compile benchmarks using jlm-opt')
-    parser.add_argument('--llvmbin', dest='llvm_bindir', action='store', default=Options.DEFAULT_LLVM_BINDIR,
-                        help='Specify bindir of LLVM tools and clang')
-    parser.add_argument('--sources', dest='sources_file', action='store', default=Options.DEFAULT_SOURCES,
-                        help=f'Specify the sources.json file to scan for benchmarks in [{Options.DEFAULT_SOURCES}]')
+    parser.add_argument('--llvmbin', dest='llvm_bindir', action='store', required=True,
+                        help='Specify bindir of LLVM tools and clang. [Required]')
+    parser.add_argument('--jlm-opt', dest='jlm_opt', action='store', required=True,
+                        help=f'Override the jlm-opt binary used. [Required]')
+    parser.add_argument('--sources', dest='sources_file', action='store', required=True,
+                        help=f'Specify the sources.json file containing benchmark descriptions. [Required]')
     parser.add_argument('--builddir', dest='build_dir', action='store', default=Options.DEFAULT_BUILD_DIR,
                         help=f'Specify the build folder to build benchmarks in. [{Options.DEFAULT_BUILD_DIR}]')
     parser.add_argument('--statsdir', dest='stats_dir', action='store', default=Options.DEFAULT_STATS_DIR,
                         help=f'Specify the folder to put jlm-opt statistics in. [{Options.DEFAULT_STATS_DIR}]')
-    parser.add_argument('--jlm-opt', dest='jlm_opt', action='store', default=Options.DEFAULT_JLM_OPT,
-                        help=f'Override the jlm-opt binary used. [{Options.DEFAULT_JLM_OPT}]')
     parser.add_argument('--jlmV', dest='jlm_opt_verbosity', action='store', default=Options.DEFAULT_JLM_OPT_VERBOSITY,
                         help=f'Set verbosity level for jlm-opt. [{Options.DEFAULT_JLM_OPT_VERBOSITY}]')
 
-    parser.add_argument('--filter', metavar='FILTER', dest='benchmark_filter', action='store', default=None,
-                        help='Only include benchmarks whose name includes a match of the given regex')
+    parser.add_argument('--filter', metavar='FILTER', dest='filters', action='append', default=None,
+                        help=('Only run benchmarks if the name contains a match for the given regex. ' +
+                              'If multiple filters are specified, the union of their matches is used.'))
     parser.add_argument('--list', dest='list_benchmarks', action='store_true',
                         help='List (filtered) benchmarks and exit')
 
@@ -721,13 +719,6 @@ def main():
 
     parser.add_argument('-j', metavar='N', dest='workers', action='store', default='1',
                         help='Run up to N tasks in parallel when possible')
-    parser.add_argument('--clean', dest='clean', action='store_true',
-                        help='Remove the build and stats folders before running')
-
-    parser.add_argument('--configSweepIterations', metavar='N', action='store', default=0, type=int,
-                        help='The number of times each possible Andersen solver config should be tested. [0]')
-    parser.add_argument('--exactConfiguration', metavar='K', action='store', dest='exact_configuration', default=None,
-                        help='Picks exactly one configuration to use')
 
     parser.add_argument('--agnosticModRef', action='store_true', dest='agnosticModRef',
                         help='Uses agnostic memory state encoding')
@@ -749,18 +740,15 @@ def main():
 
     dryrun = args.dryrun
     if not dryrun:
-        if args.clean:
-            shutil.rmtree(options.get_build_dir(), ignore_errors=True)
-            shutil.rmtree(options.get_stats_dir(), ignore_errors=True)
-
         ensure_folder_exists(options.get_build_dir())
         ensure_folder_exists(options.get_stats_dir())
 
     benchmarks = get_benchmarks(args.sources_file)
 
-    if args.benchmark_filter is not None:
-        regex = re.compile(args.benchmark_filter)
-        benchmarks = [bench for bench in benchmarks if regex.search(bench.name)]
+    if args.filters:
+        total_filter = "|".join(args.filters)
+        total_regex = re.compile(total_filter)
+        benchmarks = [bench for bench in benchmarks if total_regex.search(bench.name)]
     
     if args.list_benchmarks:
         print(f"{len(benchmarks)} benchmarks:")
@@ -779,16 +767,6 @@ def main():
         workers = 1
 
     env_vars = {}
-    if args.configSweepIterations != 0:
-        env_vars.update({
-            "JLM_ANDERSEN_TEST_ALL_CONFIGS": str(args.configSweepIterations),
-            "JLM_ANDERSEN_DOUBLE_CHECK": "YES"
-        })
-    if args.exact_configuration is not None:
-        env_vars.update({
-            "JLM_ANDERSEN_USE_EXACT_CONFIG": args.exact_configuration
-        })
-
     for bench in benchmarks:
         # The top one leads to no tbaa info, while the bottom one includes it
         bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
