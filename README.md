@@ -1,27 +1,32 @@
 # jlm benchmarking repository
 
 ## Initial setup
-If you have a copy of SPEC2017, place it inside the `sources/programs/` folder.
-It should be a file called `cpu2017.tar.xz` containing files like `install.sh`.
+Make sure all the dependencies listed in `apt-install-dependencies.sh` are installed.
 
-If SPEC2017 is not provided, the run script will automatically use the included `redist2017` folder instead,
-which contains redistributable sources from SPEC2017.
-This will skip the `505.mcf` benchmark, and use a subset of the sources on `500.perlbench`,
-but all the other benchmarks should give the same results. See `sources/README.md` for details.
+The script `run.sh` invokes the necessary commands for extracing benchmarks and running them.
+It can also clone and build jlm, if requested.
+
+By default, the script will use the included `redist2017` folder for SPEC2017.
+It contains redistributable sources for most of the C benchmarks, but does not contain the `505.mcf` benchmark,
+and uses a subset of the sources on `500.perlbench`.
+All the other benchmarks should give the same results. See `sources/README.md` for details.
+
+If you have a copy of SPEC2017, you can place it inside the `sources/programs/` folder.
+It should be a file called `cpu2017.tar.xz` containing files like `install.sh`.
+With it in place, you can pass `--full-spec` to the `./run.sh` script.
 
 ## Configuring the benchmarking
 
 ### Path to jlm
-Be default the benchmarking setup clones `jlm` inside the benchmark repository.
-If you wish to specify a different path to `jlm`, create a file called `.env`
-containing the alternative path, e.g.:
+By default the `run.sh` script assumes that `jlm-opt` is located at `jlm/build-release/jlm-opt`.
+A different path can be specified using `--jlm-opt <path>`.
+This will also update the location where `jlm` is cloned and built, if using `--build-jlm`.
+
+You can change the default location of `jlm` by creating an `.env` file containing:
 ```
 JLM_PATH=../jlm
 ```
-Note that this will not work when running with docker containers, unless `jlm/` is mounted at the given path.
-
-### Parallel invocations of jlm-opt
-Inside `run.sh` you can set the variable `PARALLEL_INVOCATIONS` to configure how many invocations of `jlm-opt` are started in parallel.
+Note that `jlm` should be in a subdirectory of the benchmarking repository if using docker, or be manually mounted into the container.
 
 ### Extra options to `benchmark.py`
 Inside `run.sh` you can modify the variable `EXTRA_BENCH_OPTIONS` to pass arguments to the `benchmark.py` script.
@@ -45,18 +50,13 @@ sudo cpupower frequency-set --min 3GHz --max 3GHz --governor performance
 
 Then mount the current directory and run the script `./run.sh` inside a Docker container using
 ``` sh
-docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh
+docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh --build-jlm
 ```
 
-The `run.sh` script does the following:
+The resulting container does the following:
    
- - Extracts the open source benchmark programs. The tarballs in `sources/programs/` are extracted in place.
+ - Extracts the benchmark programs. The tarballs in `sources/programs/` are extracted in place.
    Some of the benchmarks are also configured and built, because the build process creates some header files that are necessary for compiling.
-   
- - Depending on whether or not SPEC2017 was provided, it will:
-   - Extract `cpu2017.tar.xz`, using SPEC's own setup script.
-   
-   - Extract the subset of SPEC2017 that is available in `redistributed_sources/`.
    
  - Clones the jlm compiler (if not already cloned)
    
@@ -67,11 +67,11 @@ The `run.sh` script does the following:
 ## Restarting benchmarking
 If the `run.sh` script is for some reason aborted, it can be restarted and resume roughly where it left off.
 
-If you wish to reset all progress made by the script and start from scratch, you can pass `clean` to the run script like so:
+If you wish to reset all progress made by the script and start from scratch, you can pass `--clean` to the run script like so:
 ``` sh
-docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh clean
+docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh --clean
 ```
-This will remove all builds of `jlm-opt`, all extracted benchmarks, and any results from previous runs.
+This will remove all extracted benchmarks, and any results from previous runs.
 
 ## Running without docker
 If you install all dependencies mentioned in the `Dockerfile`, you can run without docker.
@@ -82,7 +82,7 @@ See sources/README.md for details.
 If you prefer Apptainer over docker, there is an Apptainer definition file in the `extras/` folder that is equivalent to the `Dockerfile`.
 It can be used without re-creating `sources.json`.
 
-### Running across SLURM nodes
+### Running across SLURM nodes (a bit outdated)
 The SLURM setup uses Apptainer, so build the image first, using the apptainer definition file in the `extras/` folder.
 ``` sh
 apptainer build --fakeroot jlm-benchmark.sif extras/jlm-benchmark.def

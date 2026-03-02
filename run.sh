@@ -8,9 +8,10 @@ if [ -f .env ]; then
 	source .env
 fi
 
-# Assign defaults if not already specified as environment variables
+# Assign defaults if not already specified as environment variables.
+# These can also be overwritten using --options
 LLVM_CONFIG="${LLVM_CONFIG:-llvm-config-18}"
-JLM_OPT="${JLM_OPT:-${JLM_PATH:-../..}/build-release/jlm-opt}"
+JLM_OPT="${JLM_OPT:-${JLM_PATH:-jlm}/build-release/jlm-opt}"
 
 # Execute benchmarks in parallel by default
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -244,27 +245,32 @@ if [[ ${CREATE_JSON} = true ]]; then
 fi
 popd
 
+# Expand the path of jlm-opt. Fails if jlm-opt does not exist
+JLM_OPT="$(readlink -m "$(command -v "${JLM_OPT}")")"
+
 # Build the jlm-opt binary if requested
 if [[ ${BUILD_JLM} = true ]]; then
-	# Remove the build-*/jlm-opt part of the jlm-opt path to find the jlm path
+
 	if [[ "${JLM_OPT}" = */build*/jlm-opt ]]; then
-		export JLM_PATH="${JLM_OPT%/build*/jlm-opt}"
-		echo "Cloning and building jlm in location: ${JLM_PATH}"
+	    # Remove the build-*/jlm-opt part of the jlm-opt path to find the jlm path
+	    export JLM_PATH="${JLM_OPT%/build*/jlm-opt}"
 	else
 		echo "Unable to extract a jlm path from the jlm-opt path (${JLM_OPT}). Aborting."
 		exit 1
 	fi
 
+	echo "Cloning and building jlm in location: ${JLM_PATH}"
 	just clone-jlm
 	just build-release
 	just build-debug
 fi
 
+# Extract the LLVM bindir
+LLVM_BIN="$(${LLVM_CONFIG} --bindir)"
+
 if [ ${DRY_RUN} = true ]; then
 	EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --dry-run"
 fi
-
-LLVM_BIN="$(${LLVM_CONFIG} --bindir)"
 
 # Ensure Ctrl-C quits immediately, without starting the next command
 function sigint() {
