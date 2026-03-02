@@ -77,17 +77,17 @@ while [[ "$#" -ge 1 ]] ; do
 			;;
 		--parallel)
 			shift
-			PARALLEL_INVOCATIONS=$1
+			PARALLEL_INVOCATIONS="$1"
 			shift
 			;;
 		--jlm-opt)
 			shift
-			JLM_OPT="$(readlink -m "$1")"
+			JLM_OPT="$1"
 			shift
 			;;
-		--llvm-bin)
+		--llvm-config)
 			shift
-			LLVM_BIN="$(readlink -m "$1")"
+			LLVM_CONFIG="$1"
 			shift
 			;;
 		--build-jlm)
@@ -246,7 +246,9 @@ fi
 popd
 
 # Expand the path of jlm-opt. Fails if jlm-opt does not exist
+echo "Expanding JLM_OPT path from: ${JLM_OPT}"
 JLM_OPT="$(readlink -m "$(command -v "${JLM_OPT}")")"
+echo "Expanded JLM_OPT path into: ${JLM_OPT}"
 
 # Build the jlm-opt binary if requested
 if [[ ${BUILD_JLM} = true ]]; then
@@ -266,7 +268,11 @@ if [[ ${BUILD_JLM} = true ]]; then
 fi
 
 # Extract the LLVM bindir
-LLVM_BIN="$(${LLVM_CONFIG} --bindir)"
+LLVM_BIN="$(${LLVM_CONFIG} --bindir || true)"
+if [[ -z "${LLVM_BIN}" ]]; then
+	echo "Unable to extract --bindir from ${LLVM_CONFIG}"
+	exit 1
+fi
 
 if [ ${DRY_RUN} = true ]; then
 	EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --dry-run"
