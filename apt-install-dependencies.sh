@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 
+sudo apt-get update
 sudo apt-get install \
     build-essential gcc-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev \
     libfontconfig-dev libfreetype-dev libgnutls28-dev libgl-dev libunwind-dev \
