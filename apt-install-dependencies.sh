@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-apt-get install \
+sudo apt-get install \
     build-essential gcc-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev \
     libfontconfig-dev libfreetype-dev libgnutls28-dev libgl-dev libunwind-dev \
     libx11-dev libxcomposite-dev libxcursor-dev libxfixes-dev libxi-dev libxrandr-dev \
