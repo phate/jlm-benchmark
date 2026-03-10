@@ -257,6 +257,30 @@ def table_quartiles_per_column(file_data, configuration, columns, fmt="{:,.0f}")
     print_table(df, name=configuration, number_fmt=fmt)
     return df
 
+def less_equal_more(file_data, config1, col1, config2, col2):
+    data1 = file_data.loc[file_data["Configuration"]==config1, :].set_index("cfile").loc[:, col1]
+    data2 = file_data.loc[file_data["Configuration"]==config2, :].set_index("cfile").loc[:, col2]
+
+    less = data1 < data2
+    less = set(less.index[less])
+
+    equal = data1 == data2
+    equal = set(equal.index[equal].values)
+
+    more = data1 > data2
+    more = set(more.index[more].values)
+
+    return less, equal, more
+
+def print_less_equal_more(name, less, equal, more):
+    print(f"Less / Equal / More for: {name}")
+    total = len(less | equal | more)
+    print(f"Less  ({len(less):3}/{total}):", ', '.join(map(str, list(less)[:3])))
+    print(f"Equal ({len(equal):3}/{total}):", ', '.join(map(str, list(equal)[:3])))
+    print(f"More  ({len(more):3}/{total}):", ', '.join(map(str, list(more)[:3])))
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Create results from from aggregated statistics.')
     parser.add_argument('--stats', dest='stats', action='store', default="statistics-out",
@@ -276,6 +300,9 @@ def main():
     # Remove all files that are not present in all configurations
     nconfigs = file_data["Configuration"].nunique()
     keep_cfiles = file_data.groupby("cfile")["Configuration"].nunique() == nconfigs
+    delete_cfiles = keep_cfiles[~keep_cfiles].index
+    if len(delete_cfiles):
+        print("Ingoring cfiles due to missing some configurations:", delete_cfiles)
     file_data = file_data[file_data["cfile"].map(keep_cfiles)]
 
     raware_configurations = ["RegionAwareModRef",
@@ -341,6 +368,23 @@ def main():
     table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes"])
     table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes"])
     table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes"])
+
+    print()
+
+    print("Total number of files:", file_data["cfile"].nunique())
+
+    less_loads, equal_loads, more_loads = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumLoadNodes", "Mem2Reg", "Tree0-NumLoadNodes")
+    less_stores, equal_stores, more_stores = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumStoreNodes", "Mem2Reg", "Tree0-NumStoreNodes")
+    less_allocas, equal_allocas, more_allocas = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumAllocaNodes", "Mem2Reg", "Tree0-NumAllocaNodes")
+
+    print_less_equal_more("Loads", less_loads, equal_loads, more_loads)
+    print_less_equal_more("Stores", less_stores, equal_stores, more_stores)
+    print_less_equal_more("Allocas", less_allocas, equal_allocas, more_allocas)
+
+    print_less_equal_more("AllThree", less_loads&less_stores&less_allocas, equal_loads&equal_stores&equal_allocas, more_loads&more_stores&more_allocas)
+
+    raware_data = file_data[file_data["Configuration"]=="RegionAwareModRef"].set_index("cfile")
+    print("File with more loads with fewest loads:", raware_data.loc[list(more_loads), "Tree4-NumLoadNodes"].idxmin())
 
     print()
 

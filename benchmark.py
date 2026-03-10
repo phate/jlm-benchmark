@@ -127,93 +127,29 @@ def run_command(args, cwd=None, env_vars=None, *, verbose=0, print_prefix="", ti
             print(f"Stderr:", stderr)
         raise TaskSubprocessError()
 
-def run_command_and_capture(command, env_vars=None):
-    p = subprocess.run(command, env=env_vars, capture_output=True, text=True, check=True)
-    return p.stdout, p.stderr
-
-def move_output_files(temp_dir, stats_output, other_outputs):
-    """
-    Moves files from temp_dir
-    Looks for a file called xxxxx-statistics.log, and moves it to stats_output
-    All other files with identical xxxx part are moved, given a name consiting of <other_outputs> + <suffix>
-    """
-
-    stats_files = []
-    other_files = []
-    for fil in os.listdir(temp_dir):
-        if fil.endswith("-statistics.log"):
-            stats_files.append(fil)
-        else:
-            other_files.append(fil)
-
-    if len(stats_files) > 1:
-        raise ValueError(f"Too many statistics files in {temp_dir}!")
-    elif len(stats_files) == 0:
-        # Create an empty statistics file
-        open(stats_output, "w", encoding="utf-8").close()
-        if len(other_files) > 0:
-            raise ValueError(f"No statistics.log file was produced, but other output files were!")
-        return
-
-    stats_file, = stats_files
-    # Move the statistics file
-    shutil.move(os.path.join(temp_dir, stats_file), stats_output)
-
-    # Move all other files that have the same basename
-    basename = stats_file[:-len("-statistics.log")]
-    for other_file in other_files:
-        if not other_file.startswith(basename):
-            continue
-        suffix = other_file[len(basename):]
-        shutil.move(os.path.join(temp_dir, other_file), other_outputs + suffix)
-
-
-def clean_temp_dir(temp_dir):
-    # Remove all other files in the tmp folder, to prevent buildup
-    for fil in os.listdir(temp_dir):
-        os.remove(os.path.join(temp_dir, fil))
-
-def ensure_folder_exists(path):
-    if os.path.exists(path):
-        return
-    try:
-        os.mkdir(path)
-    except FileExistsError as e:
-        pass # Someone else made the folder, no biggie
-
 
 class Task:
-    def __init__(self, *, name, input_files, output_files, action, skip_if_any_file_exists=None):
+    def __init__(self, *, name, input_files, output_files, action):
         self.name = name
         self.input_files = input_files
         self.output_files = output_files
         self.action = action
 
-        # Bonus list of files that can cause this task to be skipped
-        self.skip_if_any_file_exists = [] if skip_if_any_file_exists is None else skip_if_any_file_exists
-
     def run(self):
         self.action(self)
 
-def any_output_matches(task, regex):
-    """Returns true if any one of the output files of the given task contains a match for the given regex"""
-    return any(regex.search(of) is not None for of in task.output_files)
 
 def can_skip_task(task):
     """
     Returns true if all outputs of the given task already exist.
-    Or the disk has a file that allows the task to be skipped.
     """
     all_outputs_exist = all(os.path.exists(of) for of in task.output_files)
 
     if all_outputs_exist:
         return True
 
-    for skip_if_exists in task.skip_if_any_file_exists:
-        if os.path.isfile(skip_if_exists):
-            return True
-
     return False
+
 
 def run_all_tasks(tasks, workers=1, dryrun=False):
     """
@@ -317,10 +253,66 @@ def run_all_tasks(tasks, workers=1, dryrun=False):
     return (tasks_finished, tasks_failed, tasks_timed_out, tasks_skipped)
 
 
+####################################################################
+################ Code specific to benchmarking jlm #################
+####################################################################
+
+def move_output_files(temp_dir, stats_output, other_outputs):
+    """
+    Moves files from temp_dir
+    Looks for a file called xxxxx-statistics.log, and moves it to stats_output
+    All other files with identical xxxx part are moved, given a name consiting of <other_outputs> + <suffix>
+    """
+
+    stats_files = []
+    other_files = []
+    for fil in os.listdir(temp_dir):
+        if fil.endswith("-statistics.log"):
+            stats_files.append(fil)
+        else:
+            other_files.append(fil)
+
+    if len(stats_files) > 1:
+        raise ValueError(f"Too many statistics files in {temp_dir}!")
+    elif len(stats_files) == 0:
+        # Create an empty statistics file
+        open(stats_output, "w", encoding="utf-8").close()
+        if len(other_files) > 0:
+            raise ValueError(f"No statistics.log file was produced, but other output files were!")
+        return
+
+    stats_file, = stats_files
+    # Move the statistics file
+    shutil.move(os.path.join(temp_dir, stats_file), stats_output)
+
+    # Move all other files that have the same basename
+    basename = stats_file[:-len("-statistics.log")]
+    for other_file in other_files:
+        if not other_file.startswith(basename):
+            continue
+        suffix = other_file[len(basename):]
+        shutil.move(os.path.join(temp_dir, other_file), other_outputs + suffix)
+
+
+def clean_temp_dir(temp_dir):
+    # Remove all other files in the tmp folder, to prevent buildup
+    for fil in os.listdir(temp_dir):
+        os.remove(os.path.join(temp_dir, fil))
+
+
+def ensure_folder_exists(path):
+    if os.path.exists(path):
+        return
+    try:
+        os.mkdir(path)
+    except FileExistsError as e:
+        pass # Someone else made the folder, no biggie
+
+
 def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
                  env_vars=None, opt_flags=None, jlm_opt_flags=None, jlm_opt_suffix=None):
     """
-    Compiles the given file with the given arguments to clang.
+    Creates tasks for compiling the given file with the given arguments to clang.
     :param tasks: the list of tasks to append commands to
     :param full_name: should be a valid filename, unique to the program and source file
     :param workdir: the dir from which clang is invoked
@@ -525,8 +517,6 @@ class Benchmark:
         # Add an optional suffix to outputs of jlm-opt
         self.jlm_opt_suffix = None
 
-        self.jlm_opt_allowlist = None
-
     def get_full_cfile_name(self, cfile):
         """Get a cfile name, including the program name, and enough of the path to make it unique"""
         abspath = cfile.get_abspath()
@@ -543,20 +533,11 @@ class Benchmark:
         for i, cfile in enumerate(self.cfiles):
             full_name = self.get_full_cfile_name(cfile)
 
-            # TODO: RAM skip
-            if "makesrna_intern_rna_nodetree_gen.c" in full_name:
-                continue
-
-            # Skipping running jlm-opt if there is an allowlist and we are not on it
-            jlm_opt_flags = self.jlm_opt_flags
-            if self.jlm_opt_allowlist is not None and i not in self.jlm_opt_allowlist:
-                jlm_opt_flags = None
-
             _, _, outfile = compile_file(tasks, full_name=full_name, workdir=cfile.working_dir, cfile=cfile.cfile,
                                          stats_dir=stats_dir, env_vars=env_vars,
                                          extra_clang_flags=[*self.extra_clang_flags, *cfile.arguments],
                                          opt_flags=self.opt_flags,
-                                         jlm_opt_flags=jlm_opt_flags,
+                                         jlm_opt_flags=self.jlm_opt_flags,
                                          jlm_opt_suffix=self.jlm_opt_suffix)
             ofile_mapping[cfile.ofile] = outfile
 
@@ -782,27 +763,29 @@ def main():
         bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization"]
         bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
 
-        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-        bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation", "--LoopUnswitching", "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
+        bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation",
+                                    #"--LoopUnswitching",
+                                    "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
 
-        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         if args.agnosticModRef:
             bench.jlm_opt_flags.extend(["--AAAndersenAgnostic", "--print-agnostic-mod-ref-summarization", "--print-basicencoder-encoding"])
 
-        if args.regionAwareModRef or args.useMem2reg:
+        if args.regionAwareModRef:
             bench.jlm_opt_flags.extend(["--AAAndersenRegionAware", "--print-mod-ref-summarization", "--print-basicencoder-encoding"])
 
-        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         bench.jlm_opt_flags.append("--StoreValueForwarding")
 
-        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         bench.jlm_opt_flags.extend(["--LoadChainSeparation", "--CommonNodeElimination", "--InvariantValueRedirection", "--NodeReduction", "--DeadNodeElimination"])
 
-        #bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
         # Disable linking
         bench.clang_link_flags = None

@@ -82,7 +82,7 @@ while [[ "$#" -ge 1 ]] ; do
 			;;
 		--jlm-opt)
 			shift
-			JLM_OPT="$1"
+			JLM_OPT="$(readlink -m "$1")"
 			shift
 			;;
 		--llvm-config)
@@ -245,11 +245,6 @@ if [[ ${CREATE_JSON} = true ]]; then
 fi
 popd
 
-# Expand the path of jlm-opt. Fails if jlm-opt does not exist
-echo "Expanding JLM_OPT path from: ${JLM_OPT}"
-JLM_OPT="$(readlink -m "$(command -v "${JLM_OPT}")")"
-echo "Expanded JLM_OPT path into: ${JLM_OPT}"
-
 # Build the jlm-opt binary if requested
 if [[ ${BUILD_JLM} = true ]]; then
 
@@ -290,4 +285,13 @@ mkdir -p build statistics
 
 # Enable echoing commands to print the final benchmark.py invocation
 set -x
-./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
+#./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
+
+./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+	--regionAwareModRef --builddir build/raware --statsdir statistics/raware \
+	|| true
+
+./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r
