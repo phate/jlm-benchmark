@@ -17,14 +17,14 @@ download-emacs:
 extract-emacs: download-emacs
     #!/usr/bin/bash
 
-    # Skip extracting if it is alreadt extracted
+    # Skip extracting if it is already extracted
     if [[ -d emacs-29.4 ]]; then
        exit 0
     fi
 
     tar xzf emacs-29.4.tar.gz
     # emacs requires a full build to create needed config files
-    cd emacs-29.4 && ./configure && bear -- make -j12
+    cd emacs-29.4 && ./configure && bear intercept -- make -j12
 
 build-emacs: extract-emacs
 # Do nothing here as extracting emacs already builds it
@@ -45,7 +45,7 @@ extract-ghostscript: download-ghostscript
     tar xzf ghostscript-10.04.0.tar.gz
     cd ghostscript-10.04.0
     ./configure
-    bear -- make -j12
+    bear intercept -- make -j12
 
 build-ghostscript: extract-ghostscript
 # Do nothing here as extracting already builds it
@@ -65,7 +65,7 @@ extract-gdb: download-gdb
 
     tar xzf gdb-15.2.tar.gz
     # gdb requires a full build to create its config files
-    cd gdb-15.2 && ./configure && bear -- make -j12
+    cd gdb-15.2 && ./configure && bear intercept -- make -j12
 
 build-gdb: extract-gdb
 # Do nothing here, as extracting gdb already involves building it
@@ -109,7 +109,7 @@ build-sendmail: extract-sendmail
     find * -name "obj.*" -exec rm -r {} + -depth
 
     make clean
-    bear -- make -j12
+    bear intercept -- make -j12
 
 # Extracts all the free C benchmarks. Downloads them first if missing.
 extract-all-free: extract-emacs extract-ghostscript extract-gdb extract-sendmail
@@ -225,6 +225,17 @@ build-cpu2017: extract-cpu2017 install-cpu2017-config
         538.imagick \
         557.xz \
         544.nab
+
+test-cpu2017: extract-cpu2017 install-cpu2017-config
+    #!/usr/bin/bash -eux
+    cd {{cpu2017-dir}}
+    source shrc
+    set -euxo pipefail
+
+    export LLVM_BIN_PATH=`llvm-config-18 --bindir`
+
+    runcpu --config=jlc-config --size=test --copies=1 --noreportable --iterations=1 \
+        502.gcc
 
 clean-cpu2017:
     rm -rf {{cpu2017-dir}}

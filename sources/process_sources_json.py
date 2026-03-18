@@ -6,40 +6,7 @@ import re
 import os
 import sys
 
-# Arguments that should be removed
-IGNORED_ARGUMENTS = [
-    "-O",
-    "-O0",
-    "-O1",
-    "-O2",
-    "-O3",
-    "-Os",
-    "-Oz",
-    "-Ofast",
-    "-c",
-    "-g",
-    "-g1",
-    "-g2",
-    "-g3",
-    "-ggdb0",
-    "-ggdb1",
-    "-ggdb2",
-    "-ggdb3",
-    "--debug",
-    "-gdwarf",
-    "-gdwarf-1",
-    "-gdwarf-2",
-    "-gdwarf-3",
-    "-gdwarf-4",
-    "-gdwarf-5",
-    "-gdwarf32",
-    "-gdwarf64",
-    "-gfull"
-]
 
-REPLACED_ARGUMENTS = {
-    "-fstrict-flex-arrays": "-fstrict-flex-arrays=3"
-}
 
 # Files whose absolute path end in the following are excluded.
 # This can be due to use of inline assembly, computed goto or special intrinsics
@@ -86,8 +53,6 @@ def process_cfile(data):
     # Replace and remove compiler arguments
     arguments = [REPLACED_ARGUMENTS.get(arg, arg) for arg in arguments if arg not in IGNORED_ARGUMENTS]
 
-    # Replace build/build_base-paths from SPEC2017 with src/ to avoid relying on the build folder existsing
-    working_dir = re.sub(r'/build/build_base_[^/]*', '/src', working_dir)
 
     # sendmail performs builds inside directories named after the linux kernel being used
     # Replace this subfolder by the top level sendmail

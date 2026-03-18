@@ -468,10 +468,10 @@ def find_common_prefix(strings):
 class CFile:
     def __init__(self, working_dir, cfile, ofile, arguments):
         """
-        :param working_dir: the folder from which to compile, relative to CWD
+        :param working_dir: the folder from which to invoke the C compiler, relative to CWD
         :param cfile: the C file to compile, relative to working_dir
         :param ofile: the ofile originally produced by this command, relative to CWD
-        :param arguments: flags to pass to the compiler
+        :param arguments: flags to pass to the C compiler
         """
         self.working_dir = working_dir
         self.cfile = cfile
@@ -509,9 +509,13 @@ class Benchmark:
         self.jlm_opt_flags = None
 
         # Whole program optimization and linking flags
+        # If set, llvm-link is used
         self.llvm_link_flags = None
+        # If set, the output of llvm-link is passed to opt
         self.linked_opt_flags = None
+        # If set, the output of the above is passed to jlm-opt
         self.linked_jlm_opt_flags = None
+        # The final invocation of clang for linking, resulting in an executable
         self.clang_link_flags = linker_arguments
 
         # Add an optional suffix to outputs of jlm-opt

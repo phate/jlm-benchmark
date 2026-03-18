@@ -365,9 +365,9 @@ def main():
     table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
     table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
 
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes"])
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes"])
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes"])
+    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes", "Tree4-NumAllocaNodes"])
+    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
+    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
 
     print()
 
@@ -382,9 +382,6 @@ def main():
     print_less_equal_more("Allocas", less_allocas, equal_allocas, more_allocas)
 
     print_less_equal_more("AllThree", less_loads&less_stores&less_allocas, equal_loads&equal_stores&equal_allocas, more_loads&more_stores&more_allocas)
-
-    raware_data = file_data[file_data["Configuration"]=="RegionAwareModRef"].set_index("cfile")
-    print("File with more loads with fewest loads:", raware_data.loc[list(more_loads), "Tree4-NumLoadNodes"].idxmin())
 
     print()
 
