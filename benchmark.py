@@ -378,8 +378,8 @@ def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
 
     return (clang_out, opt_out, jlm_opt_out)
 
-def link_and_optimize(tasks, full_name, compiled_cfiles, compiled_non_cfiles, stats_dir,
-                      env_vars=None, llvm_link_flags=None, opt_flags=None, jlm_opt_flags=None, clang_link_flags=None):
+def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
+                      env_vars=None, llvm_link_flags=None, opt_flags=None, jlm_opt_flags=None, clang_link_workdir=None, clang_link_flags=None):
     """
     Links together the given files. The files can be LLVM IR files or object files.
     opt and jlm-opt can only be used if llvm-link is enabled.
@@ -387,13 +387,14 @@ def link_and_optimize(tasks, full_name, compiled_cfiles, compiled_non_cfiles, st
 
     :param tasks: the list of tasks to append commands to
     :param full_name: should be a valid filename, unique to the program
-    :param compiled_cfiles: a list of LLVM IR/bitcode files, relative to CWD
-    :param compiled_non_cfiles: a list of object files, relative to CWD
+    :param llfiles: a list of LLVM IR/bitcode files, relative to CWD
+    :param direct_ofiles: a list of object files, relative to CWD
     :param stats_dir: the directory to place statistics files in
     :param env_vars: environment variables passed to the executed commands
     :param llvm_link_flags: if not None, llvm-link is run with the given flags
     :param opt_flags: if not None, opt is run with the given flags
     :param jlm_opt_flags: if not None, jlm-opt is run with the given flags
+    :param clang_link_workdir: the directory to run the final clang linking command from
     :param clang_link_flags: if not None, clang is used to create a binary
     :return: a tuple with paths to (llvm-link's output, opt's output, jlm-opt's output, clang's final output)
     """
@@ -410,9 +411,9 @@ def link_and_optimize(tasks, full_name, compiled_cfiles, compiled_non_cfiles, st
 
     if llvm_link_flags is not None:
         llvm_link_command = [options.llvm_link, "-S",
-                             *compiled_cfiles, "-o", llvm_link_out, *llvm_link_flags]
+                             *llfiles, "-o", llvm_link_out, *llvm_link_flags]
         tasks.append(Task(name=f"llvm-link {full_name}",
-                          input_files=compiled_cfiles,
+                          input_files=llfiles,
                           output_files=[llvm_link_out],
                           action=lambda task: run_command(llvm_link_command, env_vars=combined_env_vars, timeout=options.timeout)))
 
@@ -444,17 +445,21 @@ def link_and_optimize(tasks, full_name, compiled_cfiles, compiled_non_cfiles, st
         else:
             jlm_opt_out = opt_out
 
-        compiled_cfiles = [jlm_opt_out]
+        llfiles = [jlm_opt_out]
     else:
         # Without llvm-link, opt and jlm-opt can not be used
         assert opt_flags is None and jlm_opt_flags is None
 
     if clang_link_flags is not None:
-        clang_command = [options.clang_link, *compiled_cfiles, *compiled_non_cfiles, "-o", clang_link_out, *clang_link_flags]
+        if clang_link_workdir is None:
+            clang_link_workdir = "."
+        clang_link_workdir = os.path.abspath(clang_link_workdir)
+
+        clang_command = [options.clang_link, *llfiles, *direct_ofiles, "-o", clang_link_out, *clang_link_flags]
         tasks.append(Task(name=f"clang (link) {full_name}",
-                          input_files=compiled_cfiles,
+                          input_files=[*llfiles, *direct_ofiles],
                           output_files=[clang_link_out],
-                          action=lambda task: run_command(clang_command, env_vars=combined_env_vars, timeout=options.timeout)))
+                          action=lambda task: run_command(clang_command, cwd=clang_link_workdir, env_vars=combined_env_vars, timeout=options.timeout)))
 
     return (llvm_link_out, opt_out, jlm_opt_out, clang_link_out)
 
@@ -465,43 +470,47 @@ def find_common_prefix(strings):
             prefix = prefix[:-1]
     return prefix
 
-class CFile:
-    def __init__(self, working_dir, cfile, ofile, arguments):
+class SourceFile:
+    def __init__(self, working_dir, srcfile, ofile, kind, arguments):
         """
-        :param working_dir: the folder from which to invoke the C compiler, relative to CWD
-        :param cfile: the C file to compile, relative to working_dir
-        :param ofile: the ofile originally produced by this command, relative to CWD
-        :param arguments: flags to pass to the C compiler
+        :param working_dir: the folder from which to invoke the compiler, relative to CWD
+        :param srcfile: the source file to compile, relative to working_dir
+        :param ofile: the ofile originally produced by this command, relative to working_dir
+        :param kind: the kind of file
+        :param arguments: flags to pass to the compiler
         """
         self.working_dir = working_dir
-        self.cfile = cfile
+        self.srcfile = srcfile
         self.ofile = ofile
+        self.kind = kind
         self.arguments = arguments
 
     def get_abspath(self):
-        return os.path.abspath(os.path.join(self.working_dir, self.cfile))
+        return os.path.abspath(os.path.join(self.working_dir, self.srcfile))
+
+    def get_ofile_abspath(self):
+        return os.path.abspath(os.path.join(self.working_dir, self.ofile))
 
 class Benchmark:
-    def __init__(self, name, cfiles, ofiles, linker_arguments):
+    def __init__(self, name, srcfiles, ofiles, linker_workdir, linker_arguments):
         """
         Constructs a benchmark representing a single program.
         The input passed to this constructor represents the "standard" compile+link pipeline.
         This can be customized by modifying the fields on the constructed class.
 
-        If any cfile produces one of the ofiles needed for linking, the produced ofile is used instead.
-        This is why all ofiles need to be listed relative to CWD.
-
         :param name: the name of the program
-        :param cfiles: a list of instances of CFile
-        :param ofiles: the list of object files to be linked, relative to CWD
+        :param srcfiles: a list of instances of SourceFile
+        :param ofiles: the list of object files to be linked, relative to linker_workdir
+        :param linker_workdir: the folder to run the final linking command in
         :param linker_arguments: list of linker flags, or None to disable linking
         """
         self.name = name
-        self.cfiles = cfiles
-        self.ofiles = ofiles
+        self.srcfiles = srcfiles
+        self.ofiles = [os.path.abspath(os.path.join(linker_workdir, ofile)) for ofile in ofiles]
+        self.linker_workdir = linker_workdir
 
-        # Avoid including parts of the source paths that are shared between all cfiles in the program
-        self.common_abspath = find_common_prefix(cfile.get_abspath() for cfile in self.cfiles)
+        # Avoid including parts of the source paths that are shared between all sourcefiles in the program
+        self.common_abspath = find_common_prefix(srcfile.get_abspath() for srcfile in self.srcfiles)
 
         # Per C-file compilation and optimization flags
         self.extra_clang_flags = []
@@ -521,9 +530,9 @@ class Benchmark:
         # Add an optional suffix to outputs of jlm-opt
         self.jlm_opt_suffix = None
 
-    def get_full_cfile_name(self, cfile):
+    def get_full_srcfile_name(self, srcfile):
         """Get a cfile name, including the program name, and enough of the path to make it unique"""
-        abspath = cfile.get_abspath()
+        abspath = srcfile.get_abspath()
         assert abspath.startswith(self.common_abspath)
         path = abspath[len(self.common_abspath):]
         return f"{self.name}+{path}".replace("/", "_")
@@ -532,33 +541,49 @@ class Benchmark:
         tasks = []
 
         # Maps from the ofile name used in sources, to the output file produced by jlm-opt
-        ofile_mapping = {}
+        ofile_to_llfile = {}
 
-        for i, cfile in enumerate(self.cfiles):
-            full_name = self.get_full_cfile_name(cfile)
+        for i, srcfile in enumerate(self.srcfiles):
+            full_name = self.get_full_srcfile_name(srcfile)
 
-            _, _, outfile = compile_file(tasks, full_name=full_name, workdir=cfile.working_dir, cfile=cfile.cfile,
-                                         stats_dir=stats_dir, env_vars=env_vars,
-                                         extra_clang_flags=[*self.extra_clang_flags, *cfile.arguments],
-                                         opt_flags=self.opt_flags,
-                                         jlm_opt_flags=self.jlm_opt_flags,
-                                         jlm_opt_suffix=self.jlm_opt_suffix)
-            ofile_mapping[cfile.ofile] = outfile
+            if srcfile.kind == "C":
+                _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
+                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             extra_clang_flags=[*self.extra_clang_flags, *srcfile.arguments],
+                                             opt_flags=self.opt_flags,
+                                             jlm_opt_flags=self.jlm_opt_flags,
+                                             jlm_opt_suffix=self.jlm_opt_suffix)
+
+                ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
+
+            elif srcfile.kind == "C++" or srcfile.kind == "C-nonjlm":
+                # Compile to LLVM IR without using jlm-opt
+                _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
+                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             extra_clang_flags=[*self.extra_clang_flags, *srcfile.arguments],
+                                             opt_flags=self.opt_flags)
+
+                ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
+
+            else:
+                raise ValueError(f"Unknown SourceFile kind: {srcfile.kind}")
+
 
         # Try as much as possible to use the LLVM IR files produced above when linking
-        compiled_cfiles = []
-        compiled_non_cfiles = []
+        llfiles = []
+        direct_ofiles = []
         for ofile in self.ofiles:
-            if ofile in ofile_mapping:
-                compiled_cfiles.append(ofile_mapping[ofile])
+            if ofile in ofile_to_llfile:
+                llfiles.append(ofile_to_llfile[ofile])
             else:
-                compiled_non_cfiles.append(ofile)
+                direct_ofiles.append(ofile)
 
-        link_and_optimize(tasks, full_name=self.name, compiled_cfiles=compiled_cfiles, compiled_non_cfiles=compiled_non_cfiles,
+        link_and_optimize(tasks, full_name=self.name, llfiles=llfiles, direct_ofiles=direct_ofiles,
                           stats_dir=stats_dir, env_vars=env_vars,
                           llvm_link_flags=self.llvm_link_flags,
                           opt_flags=self.linked_opt_flags,
                           jlm_opt_flags=self.linked_jlm_opt_flags,
+                          clang_link_workdir=self.linker_workdir,
                           clang_link_flags=self.clang_link_flags)
 
         return tasks
@@ -576,30 +601,34 @@ def get_benchmarks(sources_json):
         programs = json.load(sources_fd)
 
     for name, data in programs.items():
-        cfiles = []
-        for cfile_data in data["cfiles"]:
-            working_dir = os.path.join(sources_folder, cfile_data["working_dir"])
-            cfile = cfile_data["cfile"]
-            ofile = os.path.join(sources_folder, cfile_data["ofile"])
-            arguments = cfile_data["arguments"]
-            cfiles.append(CFile(working_dir=working_dir, cfile=cfile, ofile=ofile, arguments=arguments))
+        srcfiles = []
+        for srcfile_data in data["srcfiles"]:
+            working_dir = os.path.join(sources_folder, srcfile_data["working_dir"])
+            srcfile = srcfile_data["srcfile"]
+            ofile = srcfile_data["ofile"]
+            kind = srcfile_data["kind"]
+            arguments = srcfile_data["arguments"]
+            srcfiles.append(SourceFile(working_dir=working_dir, srcfile=srcfile, ofile=ofile, kind=kind, arguments=arguments))
 
-        ofiles = []
-        for ofile in data["ofiles"]:
-            ofiles.append(os.path.join(sources_folder, ofile))
+        if len(srcfiles) == 0:
+            print(f"Skipping benchmark {name} as it contains no files")
+            continue
 
+        ofiles = data["ofiles"]
+        linker_workdir = os.path.join(sources_folder, data["linker_workdir"])
         linker_arguments = data["linker_arguments"]
         if len(ofiles) == 0:
             # Disable linking if we have not tracked linking properly
             linker_arguments = None
 
         benchmarks.append(Benchmark(name=name,
-                                    cfiles=cfiles,
+                                    srcfiles=srcfiles,
                                     ofiles=ofiles,
+                                    linker_workdir=linker_workdir,
                                     linker_arguments=linker_arguments))
 
-    # Sort benchmarks in order of ascending number of C files
-    benchmarks.sort(key=lambda bench: len(bench.cfiles))
+    # Sort benchmarks in order of ascending number of source files
+    benchmarks.sort(key=lambda bench: len(bench.srcfiles))
 
     return benchmarks
 
@@ -673,7 +702,7 @@ def main():
     parser.add_argument('--llvmbin', dest='llvm_bindir', action='store', required=True,
                         help='Specify bindir of LLVM tools and clang. [Required]')
     parser.add_argument('--jlm-opt', dest='jlm_opt', action='store', required=True,
-                        help=f'Override the jlm-opt binary used. [Required]')
+                        help=f'Specify the jlm-opt binary used. [Required]')
     parser.add_argument('--sources', dest='sources_file', action='store', required=True,
                         help=f'Specify the sources.json file containing benchmark descriptions. [Required]')
     parser.add_argument('--builddir', dest='build_dir', action='store', default=Options.DEFAULT_BUILD_DIR,
@@ -683,6 +712,8 @@ def main():
     parser.add_argument('--jlmV', dest='jlm_opt_verbosity', action='store', default=Options.DEFAULT_JLM_OPT_VERBOSITY,
                         help=f'Set verbosity level for jlm-opt. [{Options.DEFAULT_JLM_OPT_VERBOSITY}]')
 
+    parser.add_argument('--full-spec', dest='full_spec', action='store_true',
+                        help='Use the full cpu2017, instead of the redistributable sources')
     parser.add_argument('--filter', metavar='FILTER', dest='filters', action='append', default=None,
                         help=('Only run benchmarks if the name contains a match for the given regex. ' +
                               'If multiple filters are specified, the union of their matches is used.'))
@@ -728,12 +759,20 @@ def main():
         ensure_folder_exists(options.get_build_dir())
         ensure_folder_exists(options.get_stats_dir())
 
-    benchmarks = get_benchmarks(args.sources_file)
+    def should_keep_benchmark(benchmark):
+        # Ensure that either cpu2017 or redist2017 are being used, not both
+        if benchmark.name.startswith("cpu2017-") and not args.full_spec:
+            return False
+        if benchmark.name.startswith("redist2017-") and args.full_spec:
+            return False
 
-    if args.filters:
-        total_filter = "|".join(args.filters)
-        total_regex = re.compile(total_filter)
-        benchmarks = [bench for bench in benchmarks if total_regex.search(bench.name)]
+        if args.filters:
+            return any(re.search(filt, benchmark.name) for filt in args.filters)
+
+        return True
+
+    benchmarks = get_benchmarks(args.sources_file)
+    benchmarks = [bench for bench in benchmarks if should_keep_benchmark(bench)]
     
     if args.list_benchmarks:
         print(f"{len(benchmarks)} benchmarks:")
@@ -791,8 +830,8 @@ def main():
 
         bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-        # Disable linking
-        bench.clang_link_flags = None
+        # Uncomment to disable linking
+        # bench.clang_link_flags = None
 
     # If any tasks time out or fail, the script will have a non-zero return code
     return run_benchmarks(benchmarks,

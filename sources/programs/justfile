@@ -1,15 +1,18 @@
 _default:
     @just --list
 
-################## Free & open source benchmarks ####################
-##### The below benchmarks are already downloaded and included, #####
-##### but we provide the download links just in case.           #####
+
+################### Free & open source programs #####################
+####### These programs are real open-source C programs.    ##########
+####### Their source tarballs are checked into the repo.   ##########
 #####################################################################
 
-# For the free open source benchmarks, specify compiler and flags to ensure reproducability
+# For the open source programs, we must compile them normally to extract commands.
+# For this, we specify the exact compiler and flags to ensure reproducability
 export CC := `llvm-config-18 --bindir` / "clang"
 export CFLAGS := "-std=c17 -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE"
 
+########################### Emacs 29.4 ##############################
 download-emacs:
     [ -f emacs-29.4.tar.gz ] || \
         wget https://ftpmirror.gnu.org/emacs/emacs-29.4.tar.gz
@@ -29,7 +32,7 @@ extract-emacs: download-emacs
 build-emacs: extract-emacs
 # Do nothing here as extracting emacs already builds it
 
-
+####################### Ghostscript 10.04.0 #########################
 download-ghostscript:
     [ -f ghostscript-10.04.0.tar.gz ] || \
         wget https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10040/ghostscript-10.04.0.tar.gz
@@ -50,7 +53,7 @@ extract-ghostscript: download-ghostscript
 build-ghostscript: extract-ghostscript
 # Do nothing here as extracting already builds it
 
-
+########################### gdb 15.2 ################################
 download-gdb:
     [ -f gdb-15.2.tar.gz ] || \
         wget https://ftp.gnu.org/gnu/gdb/gdb-15.2.tar.gz
@@ -70,14 +73,19 @@ extract-gdb: download-gdb
 build-gdb: extract-gdb
 # Do nothing here, as extracting gdb already involves building it
 
-
+######################### sendmail 8.18.1 ###########################
 download-sendmail:
     [ -f sendmail.8.18.1.tar.gz ] || \
         wget https://ftp.sendmail.org/sendmail.8.18.1.tar.gz
 
 extract-sendmail: download-sendmail
-    # Make clean does not clean everything, so re-extract the source instead
-    rm -rf sendmail-8.18.1
+    #!/usr/bin/bash -eux
+
+    # Skip extracting if it is already extracted
+    if [[ -d sendmail-8.18.1 ]]; then
+      exit 0
+    fi
+
     tar xzf sendmail.8.18.1.tar.gz
 
     # Manually do some "configuration" to avoid needing to make a build directory
@@ -94,7 +102,11 @@ extract-sendmail: download-sendmail
     ln -s ../include/sm/os/sm_os_linux.h sendmail-8.18.1/smrsh/sm_os.h
     ln -s ../include/sm/os/sm_os_linux.h sendmail-8.18.1/vacation/sm_os.h
 
-build-sendmail: extract-sendmail
+clean-sendmail:
+    # Make clean does not properly clean sendmail, so fully delete it on rebuilds
+    rm -rf sendmail-8.18.1
+
+build-sendmail: clean-sendmail extract-sendmail
     #!/usr/bin/bash -eu
     cd sendmail-8.18.1
 
@@ -111,6 +123,7 @@ build-sendmail: extract-sendmail
     make clean
     bear intercept -- make -j12
 
+####################### "All of the above" ##########################
 # Extracts all the free C benchmarks. Downloads them first if missing.
 extract-all-free: extract-emacs extract-ghostscript extract-gdb extract-sendmail
 
@@ -121,6 +134,34 @@ build-all-free: build-emacs build-ghostscript build-gdb build-sendmail
 clean-all-free:
     rm -rf emacs-29.4 ghostscript-10.04.0 gdb-15.2 sendmail-8.18.1
 
+
+############################ Polybench ##############################
+######## We already have polybench extracted in the repo ############
+#####################################################################
+
+
+######################## Embench-iot 1.0 ############################
+############ Small benchmarks of embedded workloads #################
+#####################################################################
+download-embench:
+    [ -f embench-1.0.zip ] || \
+      wget https://github.com/embench/embench-iot/archive/refs/tags/embench-1.0.zip
+
+extract-embench: download-embench
+    #!/usr/bin/bash -eux
+
+    # Skip extracting if it is already extracted
+    if [[ -d embench-1.0 ]]; then
+      exit 0
+    fi
+
+    unzip embench-1.0.zip
+    # Give the folder a nicer name
+    mv embench-iot-embench-1.0 embench-1.0
+
+# Removes the extracted folder, but does not delete downloads
+clean-embench:
+    rm -rf embench-1.0
 
 ########################### SPEC2017 redist ############################
 ### Command for extracting from SPEC2017's redistributable_sources/ ####
@@ -245,4 +286,4 @@ clean-cpu2017:
 ###           Cleanup. Does not delete any downloads.                   ###
 ###########################################################################
 
-clean-all: clean-all-free clean-redist2017 clean-cpu2017
+clean-all: clean-all-free clean-embench clean-redist2017 clean-cpu2017

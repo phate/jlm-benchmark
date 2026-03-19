@@ -30,11 +30,12 @@ EXTRACT_EMACS=false
 EXTRACT_GHOSTSCRIPT=false
 EXTRACT_GDB=false
 EXTRACT_SENDMAIL=false
+EXTRACT_EMBENCH=false
 
 # If true, a real copy of cpu2017 is used, instead of the included redist2017
 FULL_SPEC=false
 # Path to sources json file containing benchmark compilation descriptions
-SOURCES_JSON="sources/sources-redist2017.json"
+SOURCES_JSON="sources/sources.json"
 
 # Parameters for deciding what tasks the script should perform
 BUILD_JLM=false
@@ -55,13 +56,17 @@ function usage()
 	echo "                        Uses the given jlm-opt path to decide directory."
 	echo "  --full-spec           Use the full version of SPEC instead of redist2017. Requires cpu2017.tar.xz."
 	echo "  --dry-run             Do all setup except actually compiling benchmarks."
-	echo "  --create-json         Build selected benchmarks to re-create sources.json. Implies --full-spec"
-	echo "  --polybench           Compile polybench."
-	echo "  --spec                Extract and compile SPEC."
-	echo "  --emacs               Extract and compile emacs."
-	echo "  --ghostscript         Extract and compile ghostscript."
-	echo "  --gdb                 Extract and compile gdb."
-	echo "  --sendmail            Extract and compile sendmail."
+	echo "  --create-json         Build all benchmarks to re-create sources.json. Implies --full-spec"
+	echo ""
+	echo "  Optional filters:     (or none to select all)"
+	echo "    --spec              Compile SPEC (redist or full)."
+	echo "    --emacs             Compile emacs."
+	echo "    --ghostscript       Compile ghostscript."
+	echo "    --gdb               Compile gdb."
+	echo "    --sendmail          Compile sendmail."
+	echo "    --polybench         Compile Polybench."
+	echo "    --embench           Compile Embench IoT."
+	echo ""
 	echo "  --clean               Delete extracted sources and build files."
 	echo "  --help                Prints this message and stops."
 }
@@ -105,11 +110,6 @@ while [[ "$#" -ge 1 ]] ; do
 		--create-json)
 			FULL_SPEC=true
 			CREATE_JSON=true
-			shift
-			;;
-		--polybench)
-			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=polybench"
-			EXTRACT_ALL=false
 			shift
 			;;
 		--spec)
@@ -190,6 +190,17 @@ while [[ "$#" -ge 1 ]] ; do
 			EXTRACT_ALL=false
 			shift
 			;;
+		--polybench)
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=polybench"
+			EXTRACT_ALL=false
+			shift
+			;;
+		--embench)
+			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=embench"
+			EXTRACT_EMBENCH=true
+			EXTRACT_ALL=false
+			shift
+			;;
 		--help|*)
 			usage >&2
 			exit 1
@@ -199,15 +210,32 @@ done
 
 # Prepare the benchmarks
 pushd sources
+
+# If we have requested full spec
+if [[ ${FULL_SPEC} = true ]]; then
+   # Check that the tarball is in place
+   if [ ! -f programs/cpu2017.tar.xz ]; then
+	   echo "error: missing file 'sources/programs/cpu2017.tar.xz'".
+	   exit 1
+   fi
+   EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --full-spec"
+fi
+
+# Instead of benchmarking jlm-opt, the user has requested to build all benchmarks to re-create sources.json
+if [[ ${CREATE_JSON} = true ]]; then
+    echo "Performing full builds of all benchmarks, and tracing compilation commands"
+    just build-all-benchmarks
+
+    echo " - Creating sources.json and sources-redist2017.json"
+    just create-sources-json
+
+    exit 0
+fi
+
 if [ ${EXTRACT_ALL} = true ] || [ ${EXTRACT_SPEC} = true ]; then
 	echo "Extracting SPEC ."
 	if [ ${FULL_SPEC} = true ]; then
-		if [ ! -f programs/cpu2017.tar.xz ]; then
-			echo "Not able to find 'programs/cpu2017.tar.xz'".
-			exit 1
-		fi
 		just programs/extract-cpu2017
-		SOURCES_JSON="sources/sources.json"
 	else
 		just programs/extract-redist2017
 	fi
@@ -233,15 +261,9 @@ if [ ${EXTRACT_ALL} = true ] || [ ${EXTRACT_SENDMAIL} = true ]; then
 	just programs/extract-sendmail
 fi
 
-# Instead of benchmarking jlm-opt, the user has requested to build all benchmarks to re-create sources.json
-if [[ ${CREATE_JSON} = true ]]; then
-    echo "Performing full builds of all benchmarks, and tracing compilation commands"
-    just build-all-benchmarks
-
-    echo " - Creating sources.json and sources-redist2017.json"
-    just create-sources-json
-
-    exit 0
+if [ ${EXTRACT_ALL} = true ] || [ ${EXTRACT_EMBENCH} = true ]; then
+	echo "Extracting embench sources."
+	just programs/extract-embench
 fi
 popd
 
@@ -285,13 +307,14 @@ mkdir -p build statistics
 
 # Enable echoing commands to print the final benchmark.py invocation
 set -x
-#./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
+./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
 
-./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
-	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
-	--regionAwareModRef --builddir build/raware --statsdir statistics/raware \
-	|| true
+#
+#./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+#	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+#	--regionAwareModRef --builddir build/raware --statsdir statistics/raware \
+#	|| true
 
-./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
-	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
-	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r
+#./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+#	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+#	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r

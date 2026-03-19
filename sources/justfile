@@ -1,6 +1,6 @@
-################ Creating sources-raw.json yourself ##############
+################ Creating sources.json yourself ##################
 ###  This file is only relevant if you want to make            ###
-###  your own set of sources*.json files from scratch.         ###
+###  your own sources.json file from scratch.                  ###
 ###  This is only for those who are particularily interested.  ###
 ###  You also must have your own cpu2017.tar.xz to do this     ###
 ##################################################################
@@ -13,7 +13,10 @@ build-all-benchmarks:
     just programs/build-all-free
     just programs/build-cpu2017
     just programs/extract-redist2017
-    # Polybench is not built, as we are able to create compilation commands by hand
+    just programs/extract-embench
+
+    # Polybench is already extracted in the repo
+    # Polybench and embench are not built, as they
 
 # After all benchmarks have been built and traced, create sources.json
 create-sources-json:

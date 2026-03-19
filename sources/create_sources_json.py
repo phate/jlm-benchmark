@@ -11,6 +11,7 @@ PROGRAM_FOLDER = "programs"
 SPEC2017_FOLDER = f"{PROGRAM_FOLDER}/cpu2017/benchspec/CPU"
 REDIST2017_FOLDER = f"{PROGRAM_FOLDER}/redist2017/extracted"
 POLYBENCH_FOLDER = f"{PROGRAM_FOLDER}/polybench-c-4.2.1-beta"
+EMBENCH_FOLDER = f"{PROGRAM_FOLDER}/embench-1.0"
 
 # The script should be run from the sources folder
 SCRIPT_ROOT = os.getcwd()
@@ -43,6 +44,16 @@ REDIST2017_PROGRAMS = {
     "redist2017-538.imagick": "ImageMagick-6.8.9-1",
     "redist2017-557.xz": "557.xz_r/src",
     "redist2017-544.nab": "544.nab_r/src"
+}
+
+# These programs are located directly in the PROGRAM_FOLDER
+# Compilation commands to build and link these programs are extracted from events.json
+# The dictionary key is the linker output
+OTHER_PROGRAMS = {
+    "emacs-29.4": "src/temacs.tmp",
+    "ghostscript-10.04.0": "bin/gs",
+    "gdb-15.2": "gdb/gdb",
+    "sendmail-8.18.1": ""
 }
 
 # Compilation commands for Polybench are created manually according to the pattern given in their README
@@ -79,14 +90,27 @@ POLYBENCH_PROGRAMS = {
     "polybench-seidel-2d": "stencils/seidel-2d/seidel-2d.c",
 }
 
-# These programs are located directly in the PROGRAM_FOLDER
-# Compilation commands to build and link these programs are extracted from events.json
-# The dictionary key is the linker output
-OTHER_PROGRAMS = {
-    "emacs-29.4": "src/temacs.tmp",
-    "ghostscript-10.04.0": "bin/gs",
-    "gdb-15.2": "gdb/gdb",
-    "sendmail-8.18.1": ""
+# Compilation commands for Embench are created manually
+EMBENCH_PROGRAMS = {
+    "embench-aha-mont64": ["aha-mont64/mont64.c"],
+    "embench-crc32": ["crc32/crc_32.c"],
+    "embench-cubic": ["cubic/basicmath_small.c", "cubic/libcubic.c"],
+    "embench-edn": ["edn/libedn.c"],
+    "embench-huffbench": ["huffbench/libhuffbench.c"],
+    "embench-matmult-int": ["matmult-int/matmult-int.c"],
+    "embench-minver": ["minver/libminver.c"],
+    "embench-nbody": ["nbody/nbody.c"],
+    "embench-nettle-aes": ["nettle-aes/nettle-aes.c"],
+    "embench-nettle-sha256": ["nettle-sha256/nettle-sha256.c"],
+    "embench-nsichneu": ["nsichneu/libnsichneu.c"],
+    "embench-picojpeg": ["picojpeg/libpicojpeg.c", "picojpeg/picojpeg_test.c"],
+    "embench-qrduino": ["qrduino/qrencode.c", "qrduino/qrframe.c", "qrduino/qrtest.c"],
+    "embench-sglib-combined": ["sglib-combined/combined.c"],
+    "embench-slre": ["slre/libslre.c"],
+    "embench-st": ["st/libst.c"],
+    "embench-statemate": ["statemate/libstatemate.c"],
+    "embench-ud": ["ud/libud.c"],
+    "embench-wikisort": ["wikisort/libwikisort.c"],
 }
 
 # Files whose absolute path end in the following should not pass through jlm-opt,
@@ -114,8 +138,6 @@ NONJLM_C_FILES = [
     "ghostscript-10.04.0/leptonica/src/sarray1.c",
     "ghostscript-10.04.0/leptonica/src/writefile.c",
     "ghostscript-10.04.0/obj/gsromfs1.c",
-    # Just to avoid having a ton of duplicate polybench.c files
-    "utilities/polybench.c"
 ]
 
 # All files whose full path end in one of the following should be skipped entirely
@@ -184,6 +206,7 @@ def make_relative_to(path, base):
     if not path.startswith("/"):
         path = os.path.abspath(path)
 
+    # Remove any .. from the path
     path = os.path.normpath(path)
 
     base = os.path.abspath(base)
@@ -199,6 +222,9 @@ def make_relative_to(path, base):
         base = os.path.dirname(base)
         if base == "/": # Workaround for basename of root having trailing /
             base = ""
+
+def ensure_relative_to(path, base):
+    return make_relative_to(os.path.join(base, path), base)
 
 
 def extract(flag, args):
@@ -231,11 +257,11 @@ class SourceFile:
         """
 
         # If absolute paths have been provided, make them relative
-        self.working_dir = make_relative_to(working_dir, SCRIPT_ROOT)
-        self.srcfile = make_relative_to(os.path.join(self.working_dir, srcfile), self.working_dir)
-        self.ofile = make_relative_to(os.path.join(self.working_dir, ofile), self.working_dir)
+        self.working_dir = ensure_relative_to(working_dir, SCRIPT_ROOT)
+        self.srcfile = ensure_relative_to(srcfile, self.working_dir)
+        self.ofile = ensure_relative_to(ofile, self.working_dir)
         self.kind = kind
-        self.arguments = arguments
+        self.arguments = [arg for arg in arguments]
 
         if self.kind not in ["C", "C++", "C-nonjlm"]:
             raise ValueError(f"Unknown SourceFile kind: {kind}")
@@ -248,8 +274,7 @@ class SourceFile:
         return {
             "working_dir": self.working_dir,
             "srcfile": self.srcfile,
-            # In the final output, make ofile relative to script root
-            "ofile": make_relative_to(os.path.join(self.working_dir, self.ofile), SCRIPT_ROOT),
+            "ofile": self.ofile,
             "kind": self.kind,
             "arguments": self.arguments
             }
@@ -329,11 +354,11 @@ class Program:
         :param linker_arguments: extra arguments given to the linker
         """
 
-        self.folder = folder
+        self.folder = ensure_relative_to(folder, SCRIPT_ROOT)
         self.srcfiles = [srcfile.copy() for srcfile in srcfiles]
-        self.linker_workdir = linker_workdir
-        self.ofiles = ofiles.copy()
-        self.elffile = elffile
+        self.linker_workdir = ensure_relative_to(linker_workdir, SCRIPT_ROOT)
+        self.ofiles = [ensure_relative_to(ofile, self.linker_workdir) for ofile in ofiles]
+        self.elffile = ensure_relative_to(elffile, self.linker_workdir)
         self.linker_arguments = linker_arguments.copy()
 
         self.remove_unused_srcfiles()
@@ -342,8 +367,8 @@ class Program:
         return {
             "srcfiles": [srcfile.to_dict() for srcfile in self.srcfiles],
             "linker_workdir": self.linker_workdir,
-            "ofiles": [make_relative_to(os.path.join(self.linker_workdir, ofile), SCRIPT_ROOT) for ofile in self.ofiles],
-            "elffile": make_relative_to(os.path.join(self.linker_workdir, self.elffile), SCRIPT_ROOT),
+            "ofiles": self.ofiles,
+            "elffile": self.linker_workdir,
             "linker_arguments": self.linker_arguments
             }
 
@@ -355,8 +380,8 @@ class Program:
             ofile = srcfile.get_full_ofile()
 
             if ofile not in expected_ofiles:
-                print(f"Skipping SourceFile ({srcfile.get_full_srcfile()}) due to ofile not being requested: {ofile}")
-                return False
+                print(f"Warning: SourceFile ({srcfile.get_full_srcfile()}) produces ofile that is not requested: {ofile}")
+                # return False
 
             if ofile in seen_ofiles:
                 other = seen_ofiles[ofile]
@@ -540,44 +565,6 @@ def redist_program_from_spec(redist_program_name, spec_program):
                    elffile=spec_program.elffile,
                    linker_arguments=spec_program.linker_arguments)
 
-# =====================================================================
-#     Functions for creating build commands for polybench
-# =====================================================================
-def program_from_polybench(program, main_cfile):
-    # All polybench builds are done relative to the root of polybench
-    workdir=POLYBENCH_FOLDER
-
-    # The directory containing e.g. atax.c and atax.h
-    program_dir=os.path.dirname(main_cfile)
-
-    # Invent a fake build folder, since we never actually build polybench here
-    builddir=os.path.join(workdir, "build")
-
-    srcfiles = []
-    ofiles = []
-
-    def add_cfile(cfile):
-        # relative to builddir
-        ofile = cfile[:-2] + ".o"
-        ofiles.append(ofile)
-
-        ofile_relative_to_workdir = os.path.join("build", ofile)
-        srcfiles.append(SourceFile.for_cfile(working_dir=workdir,
-                                             srcfile=cfile,
-                                             ofile=ofile_relative_to_workdir,
-                                             arguments=["-Iutilities", f"-I{program_dir}", "-DPOLYBENCH_TIME", "-DPOLYBENCH_DUMP_ARRAYS"]))
-
-    add_cfile(main_cfile)
-    add_cfile("utilities/polybench.c")
-
-    # Relative to builddir
-    elffile = main_cfile[:-2] # Remove .c to get a suitable binary name
-
-    program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=builddir,
-                      ofiles=ofiles, elffile=elffile, linker_arguments=[])
-
-    return program
-
 
 # =====================================================================
 #      Creates a program using bear's events.json
@@ -664,6 +651,75 @@ def program_from_folder(folder):
     return program
 
 
+# =====================================================================
+#     Functions for creating build commands for polybench
+# =====================================================================
+def program_from_polybench(program, main_cfile):
+    # All polybench builds are done relative to the root of polybench
+    workdir = POLYBENCH_FOLDER
+
+    # The directory containing e.g. atax.c and atax.h
+    program_dir = os.path.dirname(main_cfile)
+
+    # Use a fake build folder
+    builddir = "build"
+    elffile = os.path.join(builddir, main_cfile[:-2])
+    ofile = elffile + ".o"
+
+    arguments = ["-Iutilities", f"-I{program_dir}", "-DPOLYBENCH_TIME", "-DPOLYBENCH_DUMP_ARRAYS"]
+
+    srcfile = SourceFile.for_cfile(working_dir=workdir,
+                                   srcfile=main_cfile,
+                                   ofile=ofile,
+                                   arguments=arguments)
+
+    # Include polybench.c as a linker argument, as we do not care about compiling it separately
+    program = Program(folder=workdir, srcfiles=[srcfile], linker_workdir=workdir,
+                      ofiles=[ofile], elffile=elffile, linker_arguments=["-x", "c", "utilities/polybench.c", *arguments])
+
+    return program
+
+
+# =====================================================================
+#     Functions for creating build commands for embench
+# =====================================================================
+def program_from_embench(program, cfiles):
+    # All polybench builds are done relative to the root of polybench
+    workdir = EMBENCH_FOLDER
+
+    # Invent a fake build folder, since we never actually build here
+    builddir = "build"
+    elffile = os.path.join(builddir, program)
+
+    arguments = ["-O2", "-fdata-sections", "-ffunction-sections", "-x", "c",
+                 "-Isupport", "-Iconfig/native/boards/default", "-Iconfig/native/chips/default", "-Iconfig/native",
+                 "-DCPU_MHZ=1","-DWARMUP_HEAT=1"]
+
+    srcfiles = []
+    ofiles = []
+
+    for cfile in cfiles:
+        cfile = os.path.join("src", cfile)
+        ofile = os.path.join(builddir, cfile)
+        srcfile = SourceFile.for_cfile(working_dir=workdir,
+                                   srcfile=cfile,
+                                   ofile=ofile,
+                                   arguments=arguments)
+        srcfiles.append(srcfile)
+        ofiles.append(ofile)
+
+    # Innclude support C files in linker command since we do not care about their compilation
+    linker_arguments = [*arguments, "-Wl,-gc-sections", "-lm",
+                        "config/native/chips/default/chipsupport.c", "config/native/boards/default/boardsupport.c",
+                        "support/main.c", "support/beebsc.c"]
+
+    # Include support c files as linker arguments, as we do not care about compiling them separately
+    program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=workdir,
+                      ofiles=ofiles, elffile=elffile, linker_arguments=linker_arguments)
+
+    return program
+
+
 def main():
     parser = argparse.ArgumentParser(description='Turn build logs into a sources.json file')
     parser.add_argument('--list', dest='print_list', action='store_true',
@@ -690,7 +746,7 @@ def main():
     for program in SPEC2017_PROGRAMS:
         if should_skip(program):
             continue
-        print(f"Trying to index program {program}")
+        print(f"Indexing program {program}")
         spec_folder = program.replace("cpu2017-", "") + "_r"
         program_object = program_from_spec(spec_folder)
         programs[program] = program_object
@@ -699,24 +755,29 @@ def main():
         if redist_program in REDIST2017_PROGRAMS:
             if should_skip(redist_program):
                 continue
-            print(f"Trying to index program {redist_program}")
+            print(f"Indexing program {redist_program}")
             redist_program_object = redist_program_from_spec(redist_program, program_object)
             programs[redist_program] = redist_program_object
-
-    for program, cfile in POLYBENCH_PROGRAMS.items():
-        if should_skip(program):
-            continue
-        print(f"Trying to index program {program}")
-        program_object = program_from_polybench(program, cfile)
-        programs[program] = program_object
 
     for program in OTHER_PROGRAMS:
         if should_skip(program):
             continue
-        print(f"Trying to index program {program}")
+        print(f"Indexing program {program}")
         program_folder_path = os.path.join(PROGRAM_FOLDER, program)
-        program_object = program_from_folder(program_folder_path)
-        programs[program] = program_object
+        programs[program] = program_from_folder(program_folder_path)
+
+    for program, cfile in POLYBENCH_PROGRAMS.items():
+        if should_skip(program):
+            continue
+        print(f"Indexing program {program}")
+        programs[program] = program_from_polybench(program, cfile)
+
+    for program, cfiles in EMBENCH_PROGRAMS.items():
+        if should_skip(program):
+            continue
+        print(f"Indexing program {program}")
+        programs[program] = program_from_embench(program, cfiles)
+
 
     # If all programs are filtered out, or we are just printing the list, quit now
     if len(programs) == 0:
