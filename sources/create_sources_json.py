@@ -329,7 +329,13 @@ class SourceFile:
         arguments = [REPLACED_ARGUMENTS.get(arg, arg) for arg in arguments]
 
         # Remove duplicate arguments, while preserving order
-        arguments = list(set(arguments))
+        seen = set()
+        def first_instance(arg):
+            if arg in seen:
+                return False
+            seen.add(arg)
+            return True
+        arguments = [arg for arg in arguments if first_instance(arg)]
 
         # If the source file belongs to the list of skipped files,
         # give it a special kind to signal to the benchmarking script to use clang directly
