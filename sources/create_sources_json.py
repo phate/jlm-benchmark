@@ -14,6 +14,7 @@ POLYBENCH_FOLDER = f"{PROGRAM_FOLDER}/polybench-c-4.2.1-beta"
 EMBENCH_FOLDER = f"{PROGRAM_FOLDER}/embench-1.0"
 
 VALIDATOR_FOLDER = "validators"
+EMBENCH_VALIDATOR = f"{VALIDATOR_FOLDER}/embench/validate.sh"
 
 # The script should be run from the sources folder
 SCRIPT_ROOT = os.getcwd()
@@ -826,7 +827,8 @@ def program_from_embench(program, cfiles):
 
     # Include support c files as linker arguments, as we do not care about compiling them separately
     program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=workdir,
-                      ofiles=ofiles, elffile=elffile, linker_arguments=linker_arguments)
+                      ofiles=ofiles, elffile=elffile, linker_arguments=linker_arguments,
+                      validator=EMBENCH_VALIDATOR)
 
     return program
 
