@@ -56,7 +56,7 @@ function usage()
 	echo "                        Uses the given jlm-opt path to decide directory."
 	echo "  --full-spec           Use the full version of SPEC instead of redist2017. Requires cpu2017.tar.xz."
 	echo "  --dry-run             Do all setup except actually compiling benchmarks."
-	echo "  --create-json         Build all benchmarks to re-create sources.json. Implies --full-spec"
+	echo "  --do-validation       Execute validation scripts after compiling benchmarks."
 	echo ""
 	echo "  Optional filters:     (or none to select all)"
 	echo "    --spec              Compile SPEC (redist or full)."
@@ -67,19 +67,13 @@ function usage()
 	echo "    --polybench         Compile Polybench."
 	echo "    --embench           Compile Embench IoT."
 	echo ""
+	echo "  --create-json         Build all benchmarks to re-create sources.json. Implies --full-spec"
 	echo "  --clean               Delete extracted sources and build files."
 	echo "  --help                Prints this message and stops."
 }
 
 while [[ "$#" -ge 1 ]] ; do
 	case "$1" in
-		--clean)
-			echo "Deleting extracted sources"
-			just sources/programs/clean-all
-			echo "Removing all result files from previous runs of jlm-opt"
-			just purge
-			exit 0
-			;;
 		--parallel)
 			shift
 			PARALLEL_INVOCATIONS="$1"
@@ -107,9 +101,8 @@ while [[ "$#" -ge 1 ]] ; do
 			DRY_RUN=true
 			shift
 			;;
-		--create-json)
-			FULL_SPEC=true
-			CREATE_JSON=true
+		--do-validation)
+		    EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --do-validation"
 			shift
 			;;
 		--spec)
@@ -199,6 +192,18 @@ while [[ "$#" -ge 1 ]] ; do
 			EXTRA_BENCH_OPTIONS="${EXTRA_BENCH_OPTIONS:-} --filter=embench"
 			EXTRACT_EMBENCH=true
 			EXTRACT_ALL=false
+			shift
+			;;
+		--clean)
+			echo "Deleting extracted sources"
+			just sources/programs/clean-all
+			echo "Removing all result files from previous runs of jlm-opt"
+			just purge
+			exit 0
+			;;
+		--create-json)
+			FULL_SPEC=true
+			CREATE_JSON=true
 			shift
 			;;
 		--help|*)
