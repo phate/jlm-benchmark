@@ -379,7 +379,7 @@ def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
     return (clang_out, opt_out, jlm_opt_out)
 
 def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
-                      env_vars=None, llvm_link_flags=None, opt_flags=None, jlm_opt_flags=None, clang_link_workdir=None, clang_link_flags=None):
+                      env_vars=None, llvm_link_flags=None, opt_flags=None, jlm_opt_flags=None, clang_link_output=None, clang_link_workdir=None, clang_link_flags=None):
     """
     Links together the given files. The files can be LLVM IR files or object files.
     opt and jlm-opt can only be used if llvm-link is enabled.
@@ -394,6 +394,7 @@ def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
     :param llvm_link_flags: if not None, llvm-link is run with the given flags
     :param opt_flags: if not None, opt is run with the given flags
     :param jlm_opt_flags: if not None, jlm-opt is run with the given flags
+    :param clang_link_output: the path of the final linked binary
     :param clang_link_workdir: the directory to run the final clang linking command from
     :param clang_link_flags: if not None, clang is used to create a binary
     :return: a tuple with paths to (llvm-link's output, opt's output, jlm-opt's output, clang's final output)
@@ -403,7 +404,6 @@ def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
     llvm_link_out = options.get_build_dir(f"{full_name}-llvm-link-out.ll")
     opt_out = options.get_build_dir(f"{full_name}-opt-out.ll")
     jlm_opt_out = options.get_build_dir(f"{full_name}-jlm-opt-out.ll")
-    clang_link_out = options.get_build_dir(f"{full_name}-clang-link-out")
 
     combined_env_vars = os.environ.copy()
     if env_vars is not None:
@@ -450,18 +450,20 @@ def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
         # Without llvm-link, opt and jlm-opt can not be used
         assert opt_flags is None and jlm_opt_flags is None
 
-    if clang_link_flags is not None:
+    if clang_link_output is not None:
         if clang_link_workdir is None:
             clang_link_workdir = "."
+        if clang_link_flags is None:
+            clang_link_flags = []
         clang_link_workdir = os.path.abspath(clang_link_workdir)
 
-        clang_command = [options.clang_link, *llfiles, *direct_ofiles, "-o", clang_link_out, *clang_link_flags]
+        clang_command = [options.clang_link, *llfiles, *direct_ofiles, "-o", clang_link_output, *clang_link_flags]
         tasks.append(Task(name=f"clang (link) {full_name}",
                           input_files=[*llfiles, *direct_ofiles],
-                          output_files=[clang_link_out],
+                          output_files=[clang_link_output],
                           action=lambda task: run_command(clang_command, cwd=clang_link_workdir, env_vars=combined_env_vars, timeout=options.timeout)))
 
-    return (llvm_link_out, opt_out, jlm_opt_out, clang_link_out)
+    return (llvm_link_out, opt_out, jlm_opt_out, clang_link_output)
 
 def find_common_prefix(strings):
     prefix, *rest = strings
@@ -492,7 +494,7 @@ class SourceFile:
         return os.path.abspath(os.path.join(self.working_dir, self.ofile))
 
 class Benchmark:
-    def __init__(self, name, srcfiles, ofiles, linker_workdir, linker_arguments):
+    def __init__(self, name, srcfiles, ofiles, linker_output=None, linker_workdir=None, linker_arguments=None, validator=None):
         """
         Constructs a benchmark representing a single program.
         The input passed to this constructor represents the "standard" compile+link pipeline.
@@ -501,13 +503,14 @@ class Benchmark:
         :param name: the name of the program
         :param srcfiles: a list of instances of SourceFile
         :param ofiles: the list of object files to be linked, relative to linker_workdir
+        :param linker_output: the name of the final binary, or None to disable linking
         :param linker_workdir: the folder to run the final linking command in
-        :param linker_arguments: list of linker flags, or None to disable linking
+        :param linker_arguments: list of flags to pass to linker
+        :param validator: script for validating the final linked output
         """
         self.name = name
         self.srcfiles = srcfiles
         self.ofiles = [os.path.abspath(os.path.join(linker_workdir, ofile)) for ofile in ofiles]
-        self.linker_workdir = linker_workdir
 
         # Avoid including parts of the source paths that are shared between all sourcefiles in the program
         self.common_abspath = find_common_prefix(srcfile.get_abspath() for srcfile in self.srcfiles)
@@ -532,10 +535,19 @@ class Benchmark:
         # If set, the output of the above is passed to jlm-opt
         self.linked_jlm_opt_flags = None
         # The final invocation of clang for linking, resulting in an executable
+        if linker_output is not None:
+            self.clang_link_output = options.get_build_dir(linker_output)
+        else:
+            # None disables linking
+            self.clang_link_output = None
+        self.clang_link_workdir = linker_workdir
         self.clang_link_flags = linker_arguments
 
         # Add an optional suffix to outputs of jlm-opt
         self.jlm_opt_suffix = None
+
+        # Optional validation script
+        self.validator = validator
 
     def get_full_srcfile_name(self, srcfile):
         """Get a cfile name, including the program name, and enough of the path to make it unique"""
@@ -599,7 +611,8 @@ class Benchmark:
                           llvm_link_flags=self.llvm_link_flags,
                           opt_flags=self.linked_opt_flags,
                           jlm_opt_flags=self.linked_jlm_opt_flags,
-                          clang_link_workdir=self.linker_workdir,
+                          clang_link_output=self.clang_link_output,
+                          clang_link_workdir=self.clang_link_workdir,
                           clang_link_flags=self.clang_link_flags)
 
         return tasks
@@ -631,17 +644,25 @@ def get_benchmarks(sources_json):
             continue
 
         ofiles = data["ofiles"]
+        linker_output = name
         linker_workdir = os.path.join(sources_folder, data["linker_workdir"])
         linker_arguments = data["linker_arguments"]
+
+        validator = data.get("validator", None)
+        if validator is not None:
+            validator = os.path.join(sources_folder, validator)
+
         if len(ofiles) == 0:
             # Disable linking if we have not tracked linking properly
-            linker_arguments = None
+            linker_output = None
 
         benchmarks.append(Benchmark(name=name,
                                     srcfiles=srcfiles,
                                     ofiles=ofiles,
+                                    linker_output=linker_output,
                                     linker_workdir=linker_workdir,
-                                    linker_arguments=linker_arguments))
+                                    linker_arguments=linker_arguments,
+                                    validator=validator))
 
     # Sort benchmarks in order of ascending number of source files
     benchmarks.sort(key=lambda bench: len(bench.srcfiles))
@@ -706,8 +727,43 @@ def run_benchmarks(benchmarks,
         for task in tasks_skipped:
             print(f"  ({task.index}) {task.name}")
 
-    # Only give return code 0 if all attempted tasks finished successfully
-    return 0 if len(tasks_finished) == len(tasks) else 1
+    # Return true if all tasks were successful
+    return len(tasks_finished) == len(tasks)
+
+
+def run_validation(benchmarks, dryrun=False):
+    # Run at most one script at a time, in case we want to do timing at some point
+    print("==== Executing validation scripts ====")
+    start_time = datetime.datetime.now()
+
+    for bench in benchmarks:
+        if bench.validator is None:
+            continue
+
+        linked_binary = os.path.abspath(bench.clang_link_output)
+        if not os.path.exists(linked_binary):
+            print(f"Missing binary for validation: {linked_binary}")
+            return False
+
+        if dryrun:
+            print(f"(dryrun) Validating {bench.name}")
+            continue
+        else:
+            print(f"Validating {bench.name}")
+
+        try:
+            validator_dir = os.path.dirname(bench.validator)
+            validator_script = "./" + os.path.basename(bench.validator)
+            result = run_command([validator_script, linked_binary], cwd=validator_dir)
+        except Exception as e:
+            print(e)
+            traceback.print_exc()
+            return False
+
+    end_time = datetime.datetime.now()
+    print(f"==== All validation scripts passed in {end_time - start_time}! ====")
+    return True
+
 
 def intOrNone(value):
     return int(value) if value is not None else None
@@ -751,6 +807,9 @@ def main():
 
     parser.add_argument('-j', metavar='N', dest='workers', action='store', default='1',
                         help='Run up to N tasks in parallel when possible')
+
+    parser.add_argument('--do-validation', dest='do_validation', action='store_true',
+                        help='Run validation scripts after compiling and linking')
 
     parser.add_argument('--agnosticModRef', action='store_true', dest='agnosticModRef',
                         help='Uses agnostic memory state encoding')
@@ -808,53 +867,76 @@ def main():
 
     env_vars = {}
     for bench in benchmarks:
-        # The top one leads to no tbaa info, while the bottom one includes it
-        bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
-        # bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
+        configure_benchmark(bench, args)
 
-        if args.useMem2reg:
-            bench.opt_flags = ["-passes=mem2reg"]
+    # Perform all compilation and linking tasks
+    success = run_benchmarks(benchmarks,
+                             env_vars=env_vars,
+                             offset=offset,
+                             limit=limit,
+                             stride=stride,
+                             eager=eager,
+                             workers=workers,
+                             dryrun=dryrun)
+    if not success:
+        return 1
 
-        # Configure the flags sent to jlm-opt here
-        bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization"]
-        bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
+    # If all tasks finished sucessfully and validation is requested, perform it
+    if args.do_validation:
+        success = run_validation(benchmarks,
+                                 dryrun=dryrun)
+        if not success:
+            return 1
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+    return 0
 
-        bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation",
-                                    #"--LoopUnswitching",
-                                    "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+def configure_benchmark(bench, args):
+    """
+    Called by the main() function on each benchmark to do run customization
+    """
 
-        if args.agnosticModRef:
-            bench.jlm_opt_flags.extend(["--AAAndersenAgnostic", "--print-agnostic-mod-ref-summarization", "--print-basicencoder-encoding"])
+    # The top one leads to no tbaa info, while the bottom one includes it
+    bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
+    # bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
 
-        if args.regionAwareModRef:
-            bench.jlm_opt_flags.extend(["--AAAndersenRegionAware", "--print-mod-ref-summarization", "--print-basicencoder-encoding"])
+    if args.useMem2reg:
+        bench.opt_flags = ["-passes=mem2reg"]
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+    # Configure the flags sent to jlm-opt here
+    bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization"]
+    bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
 
-        bench.jlm_opt_flags.append("--StoreValueForwarding")
+    bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+    bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation",
+                                #"--LoopUnswitching",
+                                "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
 
-        bench.jlm_opt_flags.extend(["--LoadChainSeparation", "--CommonNodeElimination", "--InvariantValueRedirection", "--NodeReduction", "--DeadNodeElimination"])
+    bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-        bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+    if args.agnosticModRef:
+        bench.jlm_opt_flags.extend(["--AAAndersenAgnostic", "--print-agnostic-mod-ref-summarization", "--print-basicencoder-encoding"])
 
-        # Uncomment to disable linking
-        # bench.clang_link_flags = None
+    if args.regionAwareModRef:
+        bench.jlm_opt_flags.extend(["--AAAndersenRegionAware", "--print-mod-ref-summarization", "--print-basicencoder-encoding"])
 
-    # If any tasks time out or fail, the script will have a non-zero return code
-    return run_benchmarks(benchmarks,
-                          env_vars=env_vars,
-                          offset=offset,
-                          limit=limit,
-                          stride=stride,
-                          eager=eager,
-                          workers=workers,
-                          dryrun=dryrun)
+    bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+
+    bench.jlm_opt_flags.append("--StoreValueForwarding")
+
+    bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+
+    bench.jlm_opt_flags.extend(["--LoadChainSeparation", "--CommonNodeElimination", "--InvariantValueRedirection", "--NodeReduction", "--DeadNodeElimination"])
+
+    bench.jlm_opt_flags.append("--RvsdgTreePrinter")
+
+    # Uncomment to disable linking
+    # bench.clang_link_output = None
+
+    # Uncomment to disable all use of jlm-opt
+    # bench.jlm_opt_flags = []
+
 
 if __name__ == "__main__":
     returncode = main()

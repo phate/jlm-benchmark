@@ -13,12 +13,16 @@ REDIST2017_FOLDER = f"{PROGRAM_FOLDER}/redist2017/extracted"
 POLYBENCH_FOLDER = f"{PROGRAM_FOLDER}/polybench-c-4.2.1-beta"
 EMBENCH_FOLDER = f"{PROGRAM_FOLDER}/embench-1.0"
 
+VALIDATOR_FOLDER = "validators"
+
 # The script should be run from the sources folder
 SCRIPT_ROOT = os.getcwd()
 
 # C++ compilers can also be used to compile / link C, so handle them all
 C_COMPILERS = ["clang", "clang18", "gcc", "jlc", "cc", "clang++", "clang++18", "g++"]
 LINKERS = C_COMPILERS
+# Some programs create archives before the final linking command
+ARCHIVERS = ["ar"]
 
 # Compilation commands for SPEC are extracted from the buildXXX/make.out log file
 SPEC2017_PROGRAMS = [
@@ -48,12 +52,20 @@ REDIST2017_PROGRAMS = {
 
 # These programs are located directly in the PROGRAM_FOLDER
 # Compilation commands to build and link these programs are extracted from events.json
-# The dictionary key is the linker output
 OTHER_PROGRAMS = {
-    "emacs-29.4": "src/temacs.tmp",
-    "ghostscript-10.04.0": "bin/gs",
-    "gdb-15.2": "gdb/gdb",
-    "sendmail-8.18.1": ""
+    "emacs-29.4": {
+        "elffile": "/src/temacs.tmp$",
+        "validator": f"{VALIDATOR_FOLDER}/emacs/validate.sh"
+    },
+    "ghostscript-10.04.0": {
+        "elffile": "/bin/gs"
+    },
+    "gdb-15.2": {
+        "elffile": "/gdb/gdb$"
+    },
+    "sendmail-8.18.1": {
+        "elffile": "/sendmail$"
+    }
 }
 
 # Compilation commands for Polybench are created manually according to the pattern given in their README
@@ -352,17 +364,18 @@ class SourceFile:
 class Program:
     """
     Represents a single program linked together from a set of object files.
-    When the object file is the result of compiling a source file, the compilation command is included.
-    All ofile paths, and the elffile path, are output relative to SCRIPT_ROOT in the json
+    The compilation commands for creating the object files are included.
+    Finally, an optional validator script is provided for testing the produced binary.
     """
-    def __init__(self, folder, srcfiles, linker_workdir, ofiles, elffile, linker_arguments):
+    def __init__(self, folder, srcfiles, linker_workdir, ofiles, elffile, linker_arguments, validator=None):
         """
         :param folder: the folder in which the program is, relative to SCRIPT_ROOT
         :param srcfiles: a list of SourceFile objects representing compiling files into object files
         :param linker_wordir: the working dir of the linking command, relative to SCRIPT_ROOT
         :param ofiles: a list of linked object file paths, all relative to linker_workdir
-        :param elffile: the name of the elf output, relative to linker_workdir
+        :param elffile: the original name of the linker output, relative to linker_workdir
         :param linker_arguments: extra arguments given to the linker
+        :param validator: optional path to validator script, relative to SCRIPT_ROOT
         """
 
         self.folder = ensure_relative_to(folder, SCRIPT_ROOT)
@@ -371,17 +384,25 @@ class Program:
         self.ofiles = [ensure_relative_to(ofile, self.linker_workdir) for ofile in ofiles]
         self.elffile = ensure_relative_to(elffile, self.linker_workdir)
         self.linker_arguments = linker_arguments.copy()
+        if validator:
+            self.validator = ensure_relative_to(validator, SCRIPT_ROOT)
+        else:
+            self.validator = None
 
         self.remove_unused_srcfiles()
 
     def to_dict(self):
-        return {
+        result = {
             "srcfiles": [srcfile.to_dict() for srcfile in self.srcfiles],
             "linker_workdir": self.linker_workdir,
             "ofiles": self.ofiles,
             "elffile": self.linker_workdir,
             "linker_arguments": self.linker_arguments
             }
+        if self.validator:
+            result["validator"] = self.validator
+
+        return result
 
     def remove_unused_srcfiles(self):
         expected_ofiles = set(make_relative_to(os.path.join(self.linker_workdir, ofile), SCRIPT_ROOT) for ofile in self.ofiles)
@@ -580,7 +601,13 @@ def redist_program_from_spec(redist_program_name, spec_program):
 # =====================================================================
 #      Creates a program using bear's events.json
 # =====================================================================
-def program_from_folder(folder):
+def program_from_folder(folder, data):
+
+    # A regex matching the path of the final output binary
+    elffile_regex = data["elffile"]
+
+    # An optional path to a script used to validate the produced binary
+    validator = data.get("validator", None)
 
     events_file = os.path.join(folder, "events.json")
     if not os.path.isfile(events_file):
@@ -589,78 +616,134 @@ def program_from_folder(folder):
     with open(events_file, 'r') as events_fd:
         event_lines = events_fd.readlines()
 
+    # All files compiled during the traced build process
     srcfiles = []
-    linker_workdir = None
-    ofiles = []
-    elffile = None
-    linker_arguments = None
+
+    # Mapping from linker output file to all its inputs
+    # All paths relative to SCRIPT_ROOT
+    linker_inputs_map = {}
+
+    def collect_linker_inputs_recursive(output_abs):
+        ofiles = []
+
+        # Do a DFS starting from the final output file
+        stack = [output_abs]
+        seen = set(stack)
+
+        while stack:
+            top = stack.pop()
+
+            # If the file is itself the result of linking or archiving
+            if top in linker_inputs_map:
+                for input_file in linker_inputs_map[top][::-1]:
+                    if input_file in seen:
+                        continue
+                    stack.append(input_file)
+                    seen.add(input_file)
+            else:
+                ofiles.append(make_relative_to(os.path.join(SCRIPT_ROOT, top), working_dir))
+
+        return ofiles
+
+    def handle_ar_command(arguments, working_dir):
+        if "--help" in arguments:
+            return
+
+        while "--plugin" in arguments:
+            _, arguments = extract("--plugin", arguments)
+
+        # ar takes the "operation", which is something like "cr" or "cvr"
+        assert "c" in arguments[0] and len(arguments[0]) <= 4
+        output = arguments[1]
+        inputs = arguments[2:]
+
+        output = make_relative_to(os.path.join(working_dir, output), SCRIPT_ROOT)
+        inputs = [make_relative_to(os.path.join(working_dir, inp), SCRIPT_ROOT) for inp in inputs]
+
+        # Skip ar commands that link ignored files as well
+        if any(inp.endswith(ignored) for inp in inputs for ignored in IGNORED_FILES):
+            return
+
+        linker_inputs_map[output] = inputs
+
+    def handle_compile_command(flags, positional, working_dir):
+        if len(positional) != 1:
+            raise ValueError(f"Compiler command should have exactly one positional argument: {arguments}")
+        srcfile = positional[0]
+
+        # If there is a -o, extract it
+        if "-o" in flags:
+            ofile, flags = extract("-o", flags)
+        else:
+            assert "." in srcfile
+            ofile = srcfile[:srcfile.rfind(".")] + ".o"
+
+        srcfiles.append(SourceFile.for_cfile(working_dir=working_dir,
+                                             srcfile=srcfile,
+                                             ofile=ofile,
+                                             arguments=flags))
+
+    def handle_link_command(flags, positional, working_dir):
+        if "-o" not in flags:
+            raise ValueError(f"Linking command must have an explicit output file: {arguments}")
+        ofile, flags = extract("-o", flags)
+
+        ofile_abs = make_relative_to(os.path.join(working_dir, ofile), SCRIPT_ROOT)
+
+        linker_inputs_map[ofile_abs] = []
+        for input_ofile in positional:
+            linker_inputs_map[ofile_abs].append(make_relative_to(os.path.join(working_dir, input_ofile), SCRIPT_ROOT))
+
+        # If this is the final linking command, collect all ofiles involved
+        if re.search(elffile_regex, ofile_abs):
+            # The final set of ofiles, relative to working_dir
+            ofiles = collect_linker_inputs_recursive(ofile_abs)
+
+            return Program(folder=folder, srcfiles=srcfiles, linker_workdir=working_dir,
+                           ofiles=ofiles, elffile=ofile, linker_arguments=flags, validator=validator)
+
+
     for event_line in event_lines:
         event = json.loads(event_line)
         executable = event["execution"]["executable"]
         arguments = event["execution"]["arguments"][1:]
         working_dir = event["execution"]["working_dir"]
 
-        if not any(executable.endswith(c) for c in C_COMPILERS):
-            # Skip commands that are not a compiler
-            continue
+        # Workaround for sendmail naming build folders after the host kernel
+        if "sendmail-8.18.1/" in working_dir:
+            convert = lambda text: re.sub(r"/obj\.[^/]*/", "/", text).replace("../../", "../")
+            working_dir = convert(working_dir)
+            arguments = [convert(arg) for arg in arguments]
 
-        flags, positional = separate_compiler_arguments(arguments)
+        if any(executable.endswith(cmd) for cmd in ARCHIVERS):
+            handle_ar_command(arguments, working_dir)
 
-        # Skip commands that were executed only for info
-        def should_skip_flag(flag):
-            return any(re.match(disq, flag) for disq in DISQUALIFYING_FLAGS)
-        if any(should_skip_flag(flag) for flag in flags):
-            continue
+        elif any(executable.endswith(c) for c in C_COMPILERS):
+            flags, positional = separate_compiler_arguments(arguments)
 
-        # Skip commands that compile or link ignored files
-        def should_skip_posit(posit):
-            full_path = os.path.normpath(os.path.join(working_dir, posit))
-            return any(full_path.endswith(ignored) for ignored in IGNORED_FILES)
-        if any(should_skip_posit(posit) for posit in positional):
-            continue
+            # Skip commands that were executed only to extract info
+            def should_skip_flag(flag):
+                return any(re.match(disq, flag) for disq in DISQUALIFYING_FLAGS)
+            if any(should_skip_flag(flag) for flag in flags):
+                continue
 
+            # Skip commands that compile or link ignored files (also compiled for info)
+            def should_skip_filename(filename):
+                full_path = os.path.normpath(os.path.join(working_dir, filename))
+                return any(full_path.endswith(ignored) for ignored in IGNORED_FILES)
+            if any(should_skip_filename(filename) for filename in positional):
+                continue
 
-        # If there is a -o, remove it
-        if "-o" in flags:
-            ofile, flags = extract("-o", flags)
-        else:
-            ofile = None
+            if "-c" in flags:
+                handle_compile_command(flags, positional, working_dir)
+            else:
+                program = handle_link_command(flags, positional, working_dir)
 
-        # Is this a linking command or a compilation command?
-        if "-c" in flags:
-            if len(positional) != 1:
-                raise ValueError(f"Compiler command should have exactly one positional argument: {arguments}")
-            srcfile = positional[0]
+                # Was this the final link command we were looking for?
+                if program is not None:
+                    return program
 
-            if ofile is None:
-                assert "." in srcfile
-                ofile = srcfile[:srcfile.rfind(".")] + ".o"
-
-                srcfile = SourceFile.for_cfile(working_dir=working_dir,
-                                               srcfile=srcfile,
-                                               ofile=ofile,
-                                               arguments=flags)
-                srcfiles.append(srcfile)
-        else:
-            # This is a linking command
-            if ofile is None:
-                raise ValueError(f"Linking command can not have a deafult output file: {arguments}")
-
-            if elffile is not None:
-                print(f"We already had a linker output: {elffile}")
-
-            elffile = ofile
-            ofiles = positional
-            linker_workdir = working_dir
-            linker_arguments = flags
-
-    if elffile is None:
-        raise ValueError(f"No linking command seen in benchmark {folder}")
-    program = Program(folder=folder, srcfiles=srcfiles, linker_workdir=linker_workdir,
-                      ofiles=ofiles, elffile=elffile, linker_arguments=linker_arguments)
-
-    return program
-
+    raise ValueError(f"No linker command producing {elffile_regex} found in {events_file}")
 
 # =====================================================================
 #     Functions for creating build commands for polybench
@@ -787,12 +870,12 @@ def main():
             redist_program_object = redist_program_from_spec(redist_program, program_object)
             programs[redist_program] = redist_program_object
 
-    for program in OTHER_PROGRAMS:
+    for program, data in OTHER_PROGRAMS.items():
         if should_skip(program):
             continue
         print(f"Indexing program {program}")
         program_folder_path = os.path.join(PROGRAM_FOLDER, program)
-        programs[program] = program_from_folder(program_folder_path)
+        programs[program] = program_from_folder(program_folder_path, data)
 
     for program, cfile in POLYBENCH_PROGRAMS.items():
         if should_skip(program):
