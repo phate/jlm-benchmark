@@ -513,7 +513,14 @@ class Benchmark:
         self.common_abspath = find_common_prefix(srcfile.get_abspath() for srcfile in self.srcfiles)
 
         # Per C-file compilation and optimization flags
+        # Flags passed to clang when compiling to LLVM IR
         self.extra_clang_flags = []
+        # Flags passed to clang when compiling C files that are not processed by jlm
+        self.extra_clang_flags_nonjlm = ["-O2"]
+        # Flags passed to clang when compiling C++ files (not processed by jlm)
+        self.extra_clang_flags_cpp = ["-O2"]
+
+        # If set, opt and/or jlm-opt are used
         self.opt_flags = None
         self.jlm_opt_flags = None
 
@@ -556,11 +563,20 @@ class Benchmark:
 
                 ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
 
-            elif srcfile.kind == "C++" or srcfile.kind == "C-nonjlm":
-                # Compile to LLVM IR without using jlm-opt
+            elif srcfile.kind == "C-nonjlm":
+                # Compile to LLVM IR, but skip jlm-opt
                 _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
                                              stats_dir=stats_dir, env_vars=env_vars,
-                                             extra_clang_flags=[*self.extra_clang_flags, *srcfile.arguments],
+                                             extra_clang_flags=[*self.extra_clang_flags_nonjlm, *srcfile.arguments],
+                                             opt_flags=self.opt_flags)
+
+                ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
+
+            elif srcfile.kind == "C++" or srcfile.kind == "C++-nonjlm":
+                # Compile C++ to LLVM IR, no not use jlm-opt in any case
+                _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
+                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             extra_clang_flags=[*self.extra_clang_flags_cpp, *srcfile.arguments],
                                              opt_flags=self.opt_flags)
 
                 ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
@@ -795,9 +811,6 @@ def main():
         # The top one leads to no tbaa info, while the bottom one includes it
         bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
         # bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
-
-        # Uncomment the below line to run opt on each LLVM IR file before passing it to jlm-opt
-        # bench.opt_flags = ["--passes=mem2reg"]
 
         if args.useMem2reg:
             bench.opt_flags = ["-passes=mem2reg"]

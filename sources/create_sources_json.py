@@ -145,7 +145,7 @@ IGNORED_FILES = [
     "conftest.c", # Used by gdb to test the system compiler
     "conftest1.c",
     "conftest2.c",
-    "conftest.cpp"
+    "conftest.cpp",
 ]
 
 # When these flags appear on their own, the next argument belongs to it, and is not a positional argument
@@ -187,7 +187,7 @@ IGNORED_ARGUMENTS = [
     "-gdwarf-5",
     "-gdwarf32",
     "-gdwarf64",
-    "-gfull"
+    "-gfull",
 ]
 
 REPLACED_ARGUMENTS = {
@@ -291,13 +291,16 @@ class SourceFile:
         return os.path.normpath(os.path.join(self.working_dir, self.ofile))
 
     @classmethod
-    def for_cfile(cls, working_dir, srcfile, ofile, arguments):
+    def for_cfile(cls, working_dir, srcfile, ofile, arguments, nonjlm=None):
         """
         Creates a SourceFile instance for a C or C++ file,
         while filtering out arguments that have been marked as being ignored,
         and performing checks.
+
+        If nonjlm is True, the file kind is marked as not to be processed by jlm-opt.
+        If nonjlm is None (the default), the NONJLM_C_FILES list is consulted.
         """
-        kind = None
+
         if srcfile.endswith(".c"):
             kind = "C"
         elif srcfile.endswith(".cpp") or srcfile.endswith(".cc"):
@@ -337,10 +340,12 @@ class SourceFile:
             return True
         arguments = [arg for arg in arguments if first_instance(arg)]
 
-        # If the source file belongs to the list of skipped files,
-        # give it a special kind to signal to the benchmarking script to use clang directly
-        if any(make_relative_to(os.path.join(working_dir, srcfile), SCRIPT_ROOT).endswith(s) for s in NONJLM_C_FILES):
-            kind = "C-nonjlm"
+        # If nonjlm has not been specified, check the list
+        if nonjlm is None:
+            nonjlm = any(make_relative_to(os.path.join(working_dir, srcfile), SCRIPT_ROOT).endswith(s) for s in NONJLM_C_FILES)
+
+        if nonjlm:
+            kind += "-nonjlm"
 
         return SourceFile(working_dir, srcfile, ofile, kind, arguments)
 
@@ -670,18 +675,27 @@ def program_from_polybench(program, main_cfile):
     # Use a fake build folder
     builddir = "build"
     elffile = os.path.join(builddir, main_cfile[:-2])
-    ofile = elffile + ".o"
 
     arguments = ["-Iutilities", f"-I{program_dir}", "-DPOLYBENCH_TIME", "-DPOLYBENCH_DUMP_ARRAYS"]
 
-    srcfile = SourceFile.for_cfile(working_dir=workdir,
-                                   srcfile=main_cfile,
-                                   ofile=ofile,
-                                   arguments=arguments)
+    srcfiles = []
+    ofiles = []
+
+    def add_cfile(cfile):
+        ofile = os.path.join(builddir, cfile[:-2]) + ".o"
+        srcfile = SourceFile.for_cfile(working_dir=workdir,
+                                       srcfile=main_cfile,
+                                       ofile=ofile,
+                                       arguments=arguments)
+        srcfiles.append(srcfile)
+        ofiles.append(ofile)
+
+    add_cfile(main_cfile)
+    add_cfile("utilities/polybench.c")
 
     # Include polybench.c as a linker argument, as we do not care about compiling it separately
-    program = Program(folder=workdir, srcfiles=[srcfile], linker_workdir=workdir,
-                      ofiles=[ofile], elffile=elffile, linker_arguments=["-x", "c", "utilities/polybench.c", *arguments])
+    program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=workdir,
+                      ofiles=ofiles, elffile=elffile, linker_arguments=[])
 
     return program
 
@@ -697,27 +711,35 @@ def program_from_embench(program, cfiles):
     builddir = "build"
     elffile = os.path.join(builddir, program)
 
-    arguments = ["-O2", "-fdata-sections", "-ffunction-sections", "-x", "c",
+    arguments = ["-fdata-sections", "-ffunction-sections",
                  "-Isupport", "-Iconfig/native/boards/default", "-Iconfig/native/chips/default", "-Iconfig/native",
                  "-DCPU_MHZ=1","-DWARMUP_HEAT=1"]
 
     srcfiles = []
     ofiles = []
 
-    for cfile in cfiles:
-        cfile = os.path.join("src", cfile)
-        ofile = os.path.join(builddir, cfile)
+    def add_cfile(cfile, nonjlm=None):
+        ofile = os.path.join(builddir, cfile[:-2]) + ".o"
         srcfile = SourceFile.for_cfile(working_dir=workdir,
                                    srcfile=cfile,
                                    ofile=ofile,
-                                   arguments=arguments)
+                                   arguments=arguments,
+                                    nonjlm=nonjlm)
         srcfiles.append(srcfile)
         ofiles.append(ofile)
 
-    # Innclude support C files in linker command since we do not care about their compilation
-    linker_arguments = [*arguments, "-Wl,-gc-sections", "-lm",
-                        "config/native/chips/default/chipsupport.c", "config/native/boards/default/boardsupport.c",
-                        "support/main.c", "support/beebsc.c"]
+    for cfile in cfiles:
+        add_cfile(os.path.join("src", cfile))
+
+    SUPPORT_FILES = ["config/native/chips/default/chipsupport.c",
+                     "config/native/boards/default/boardsupport.c",
+                     "support/main.c",
+                     "support/beebsc.c"]
+
+    for cfile in SUPPORT_FILES:
+        add_cfile(cfile, nonjlm=True)
+
+    linker_arguments = ["-Wl,-gc-sections", "-lm"]
 
     # Include support c files as linker arguments, as we do not care about compiling them separately
     program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=workdir,
