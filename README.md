@@ -3,7 +3,7 @@
 ## Initial setup
 Make sure all the dependencies listed in `apt-install-dependencies.sh` are installed.
 
-The script `run.sh` invokes the necessary commands for extracing benchmarks and running them.
+The script `run.sh` invokes the necessary commands for extracing benchmarks and compiling them.
 It can also clone and build jlm, if requested.
 
 By default, the script will use the included `redist2017` folder for SPEC2017.
@@ -14,6 +14,8 @@ All the other benchmarks should give the same results. See `sources/README.md` f
 If you have a copy of SPEC2017, you can place it inside the `sources/programs/` folder.
 It should be a file called `cpu2017.tar.xz` containing files like `install.sh`.
 With it in place, you can pass `--full-spec` to the `./run.sh` script.
+
+To check if the programs were compiled correctly, you can pass `--do-validation` to run some simple checks.
 
 ## Configuring the benchmarking
 
