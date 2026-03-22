@@ -7,7 +7,7 @@ RUN apt-get update && \
     apt-get install -y \
     git wget pipx python3-psutil python3-pandas python3-matplotlib python3-seaborn \
     lmod locales doxygen make ninja-build just g++ gfortran bear autoconf texinfo \
-    llvm-18-dev clang-18 clang-format-18 \
+    llvm-18-dev clang-18 clang-format-18 libgtest-dev \
     \
     build-essential gcc-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev \
     libfontconfig-dev libfreetype-dev libgnutls28-dev libgl-dev libunwind-dev \
