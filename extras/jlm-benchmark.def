@@ -1,28 +1,13 @@
 Bootstrap: docker
 From: ubuntu:24.04
 
-%post
-    BENCHMARK_DEPENDENCIES="build-essential \
-                            gcc-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev \
-                            libfontconfig-dev libfreetype-dev libgnutls28-dev libgl-dev libunwind-dev \
-                            libx11-dev libxcomposite-dev libxcursor-dev libxfixes-dev libxi-dev libxrandr-dev \
-                            libxrender-dev libxext-dev libwayland-bin libwayland-dev libegl-dev \
-                            libxkbcommon-dev libxkbregistry-dev \
-                            libxaw7-dev xaw3dg-dev libgtk-3-dev libglib2.0-dev libtree-sitter-dev \
-                            libgif-dev libxpm-dev libjpeg-dev libtiff-dev libgnutls28-dev \
-                            libmpfr-dev libxxhash-dev gawk flex bison"
+%files
+    ./apt-install-dependencies.sh .
 
-    apt update
-    apt install -y git wget pipx python3-psutil python3-pandas python3-matplotlib python3-seaborn \
-                   lmod locales doxygen make ninja-build valgrind verilator just g++ gfortran bear autoconf texinfo \
-                   llvm-18-dev clang-18 clang-format-18 libmlir-18-dev mlir-18-tools \
-                   $BENCHMARK_DEPENDENCIES
+%post
+    ./apt-install-dependencies.sh
     locale-gen en_US.UTF-8
     update-locale
-
-    # Set up symlinks for libMLIR.so
-    ln -s /usr/lib/llvm-18/lib/libMLIR.so.18* /usr/lib/x86_64-linux-gnu/
-    ln -s /usr/lib/llvm-18/lib/libMLIR.so.18* /usr/lib/x86_64-linux-gnu/libMLIR.so
 
     # Install lit using pipx
     pipx install "lit~=18.0"

@@ -76,34 +76,15 @@ docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark
 This will remove all extracted benchmarks, and any results from previous runs.
 
 ## Running without docker
-If you install all dependencies mentioned in the `Dockerfile`, you can run without docker.
-However, some dependencies may be located in different locations on your system.
+If you install all dependencies listed in `apt-install-dependencies.sh`, you can run without docker.
+However, some dependencies may be located in different locations if you are not running on Ubuntu 24.
 This will affect the compilation commands, so the file `sources/sources.json` will need to be re-made.
-See sources/README.md for details.
+See [[sources/README.md]] for details.
 
 If you prefer Apptainer over docker, there is an Apptainer definition file in the `extras/` folder that is equivalent to the `Dockerfile`.
 It can be used without re-creating `sources.json`.
+See the README in the `extras/` folder for instructions.
 
 ### Running across SLURM nodes (a bit outdated)
-The SLURM setup uses Apptainer, so build the image first, using the apptainer definition file in the `extras/` folder.
-``` sh
-apptainer build --fakeroot jlm-benchmark.sif extras/jlm-benchmark.def
-```
-
-Before benchmarking, make sure you delete any old statistics and logs.
-```sh
-apptainer exec jlm-benchmark.sif just purge
-rm -rf slurm-log
-```
-
-Then make sure sources are extracted and `jlm-opt` is built using:
-``` sh
-apptainer exec jlm-benchmark.sif ./run.sh dry-run
-```
-
-Then run `extras/run-slurm.sh` like so:
-```sh
-mkdir -p statistics build
-APPTAINER_CONTAINER=jlm-benchmark.sif sbatch extras/run-slurm.sh
-```
+There are some SLURM scripts in the `extras/` folder that can be used with Apptainer to spread work across SLURM nodes.
 
