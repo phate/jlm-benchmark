@@ -909,9 +909,12 @@ def configure_benchmark(bench, args):
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-    bench.jlm_opt_flags.extend(["--FunctionInlining", "--PredicateCorrelation",
+    bench.jlm_opt_flags.extend(["--FunctionInlining",
+                                "--PredicateCorrelation",
                                 #"--LoopUnswitching",
-                                "--CommonNodeElimination", "--InvariantValueRedirection", "--DeadNodeElimination"])
+                                "--CommonNodeElimination",
+                                "--InvariantValueRedirection",
+                                "--DeadNodeElimination"])
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
@@ -927,7 +930,12 @@ def configure_benchmark(bench, args):
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-    bench.jlm_opt_flags.extend(["--LoadChainSeparation", "--CommonNodeElimination", "--InvariantValueRedirection", "--NodeReduction", "--DeadNodeElimination"])
+    bench.jlm_opt_flags.extend([
+        #"--LoadChainSeparation",
+        "--CommonNodeElimination",
+        "--InvariantValueRedirection",
+        "--NodeReduction",
+        "--DeadNodeElimination"])
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
@@ -936,6 +944,9 @@ def configure_benchmark(bench, args):
 
     # Uncomment to disable all use of jlm-opt
     # bench.jlm_opt_flags = None
+
+    # Uncomment to disable all passes in jlm-opt
+    # bench.jlm_opt_flags = []
 
 
 if __name__ == "__main__":
