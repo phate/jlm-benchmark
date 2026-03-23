@@ -231,7 +231,7 @@ if [[ ${CREATE_JSON} = true ]]; then
     echo "Performing full builds of all benchmarks, and tracing compilation commands"
     just build-all-benchmarks
 
-    echo " - Creating sources.json and sources-redist2017.json"
+    echo " - Creating sources.json"
     just create-sources-json
 
     exit 0

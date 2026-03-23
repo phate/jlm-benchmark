@@ -20,6 +20,9 @@ They can all be found in the `programs/` folder.
 ### Polybench
  - TODO
 
+### Embench
+ - TODO
+
 ### SPEC 2017 benchmarks
 We use the following benchmarks from SPEC2017:
  - 500.perlbench
@@ -32,8 +35,8 @@ We use the following benchmarks from SPEC2017:
  - 557.xz
  - 544.nab
 
-#### If you have a copy of SPEX2017
-If you have a copy of `cpu2017.tar.xz`, place it in the folder next to `PLACE_cpu2017_tar_xz_HERE`.
+#### If you have a copy of SPEC2017
+If you have a copy of `cpu2017.tar.xz`, place it in the `programs/` folder next to `PLACE_cpu2017_tar_xz_HERE`.
 
 #### If you do not have a copy
 While SPEC 2017 is propriatary, they provide a folder called `redistributable_sources/`, containing both original and modified sources.
@@ -51,19 +54,8 @@ The changes from actual SPEC2017 to `redist2017` are:
  - The rest of the bechmarks are identical between `cpu2017` and `redist2017`.
 
 ### Extracting benchmarks
-The following commands are automatically executed by the `./run.sh` script, but you can also execute them manually.
-
-To extract the benchmarks from their tarballs, in the current directory run:
-
-``` sh
-just programs/extract-all-free
-
-# If you do not have your own cpu2017.tar.xz 
-just programs/extract-redist2017
-
-# If you have provided cpu2017.tar.xz
-just prorams/extract-cpu2017
-```
+The benchmark programs are extracted by the `./run.sh` script, but you can also extract them manually.
+See the list of `extraxt-*` tasks by running `just --list` in the `programs` folder.
 
 ### Creating sources.json for your machine
 The file `sources-raw.json` contains all the compiler invocations used to build the programs,
@@ -79,10 +71,10 @@ See `../Dockerfile` for list of suggestions.
 From the root of the repository, create fresh sources json files using:
 
 ``` sh
-./run.sh create-sources-json
+./run.sh create-json
 
-# To create the original docker-based sources.json, run in the docker image
-docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh create-sources-json
+# To create a sources.json for Ubuntu 24, run in the docker image
+docker run -it --mount type=bind,source="$(pwd)",target=/benchmark jlm-benchmark-image ./run.sh --create-json
 ```
 
 

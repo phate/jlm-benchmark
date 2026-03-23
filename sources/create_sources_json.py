@@ -159,6 +159,7 @@ IGNORED_FILES = [
     "conftest1.c",
     "conftest2.c",
     "conftest.cpp",
+    "Imakefile.c" # Also used by gdb to test the system compiler
 ]
 
 # When these flags appear on their own, the next argument belongs to it, and is not a positional argument
@@ -706,6 +707,13 @@ def program_from_folder(folder, data):
 
     for event_line in event_lines:
         event = json.loads(event_line)
+
+        # Support for the events.json format from bear 3.1.3
+        if "started" in event:
+            event = event["started"]
+        elif "terminated" in event:
+            continue
+
         executable = event["execution"]["executable"]
         arguments = event["execution"]["arguments"][1:]
         working_dir = event["execution"]["working_dir"]
