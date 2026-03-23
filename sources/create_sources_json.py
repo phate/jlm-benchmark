@@ -548,9 +548,9 @@ def program_from_spec(spec_folder):
         raise ValueError(f"The spec benchmark {spec_folder} has not been built before")
 
     dirlist = os.listdir(build_dir)
-    dirlist = [f for f in dirlist if f.startswith("build")]
+    dirlist = [f for f in dirlist if f.startswith("build_base_clang")]
     if len(dirlist) == 0:
-        raise ValueError(f"The spec benchmark {spec_folder} has not been built before")
+        raise ValueError(f"The spec benchmark {spec_folder} has not been built")
 
     latest_build_dir = os.path.join(build_dir, max(dirlist))
 
@@ -765,17 +765,18 @@ def program_from_polybench(program, main_cfile):
     srcfiles = []
     ofiles = []
 
-    def add_cfile(cfile):
+    def add_cfile(cfile, nonjlm=None):
         ofile = os.path.join(builddir, cfile[:-2]) + ".o"
         srcfile = SourceFile.for_cfile(working_dir=workdir,
-                                       srcfile=main_cfile,
+                                       srcfile=cfile,
                                        ofile=ofile,
-                                       arguments=arguments)
+                                       arguments=arguments,
+                                       nonjlm=nonjlm)
         srcfiles.append(srcfile)
         ofiles.append(ofile)
 
     add_cfile(main_cfile)
-    add_cfile("utilities/polybench.c")
+    add_cfile("utilities/polybench.c", nonjlm=True)
 
     # Include polybench.c as a linker argument, as we do not care about compiling it separately
     program = Program(folder=workdir, srcfiles=srcfiles, linker_workdir=workdir,

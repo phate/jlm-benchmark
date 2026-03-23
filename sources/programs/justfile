@@ -248,7 +248,7 @@ extract-cpu2017:
 install-cpu2017-config:
     cp -r --update=all {{redist2017-dir}}/config {{cpu2017-dir}}
 
-build-cpu2017: extract-cpu2017 install-cpu2017-config
+build-cpu2017 config="clang-config": extract-cpu2017 install-cpu2017-config
     #!/usr/bin/bash -eux
     cd {{cpu2017-dir}}
     source shrc
@@ -256,7 +256,7 @@ build-cpu2017: extract-cpu2017 install-cpu2017-config
 
     export LLVM_BIN_PATH=`llvm-config-18 --bindir`
 
-    runcpu --config=clang-config --size=test --copies=1 --noreportable --iterations=1 \
+    runcpu --config={{config}} --size=test --copies=1 --noreportable --iterations=1 \
         500.perlbench \
         502.gcc \
         505.mcf \
@@ -267,16 +267,8 @@ build-cpu2017: extract-cpu2017 install-cpu2017-config
         557.xz \
         544.nab
 
-test-cpu2017: extract-cpu2017 install-cpu2017-config
-    #!/usr/bin/bash -eux
-    cd {{cpu2017-dir}}
-    source shrc
-    set -euxo pipefail
-
-    export LLVM_BIN_PATH=`llvm-config-18 --bindir`
-
-    runcpu --config=jlc-config --size=test --copies=1 --noreportable --iterations=1 \
-        502.gcc
+# Used to test compiling and running SPEC2017 using jlc
+jlc-cpu2017: (build-cpu2017 "jlc-config")
 
 clean-cpu2017:
     rm -rf {{cpu2017-dir}}
