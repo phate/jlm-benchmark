@@ -21,6 +21,7 @@ SCRIPT_ROOT = os.getcwd()
 
 # C++ compilers can also be used to compile / link C, so handle them all
 C_COMPILERS = ["clang", "clang18", "gcc", "jlc", "cc", "clang++", "clang++18", "g++"]
+FORTRAN_COMPILERS = ["gfortran"]
 LINKERS = C_COMPILERS
 # Some programs create archives before the final linking command
 ARCHIVERS = ["ar"]
@@ -126,6 +127,19 @@ EMBENCH_PROGRAMS = {
     "embench-wikisort": ["wikisort/libwikisort.c"],
 }
 
+# All files whose full path end in one of the following should be skipped entirely
+DISQUALIFYING_FILES = [
+    "conftest.c", # Used by gdb to test the system compiler
+    "conftest1.c",
+    "conftest2.c",
+    "conftest.cpp",
+    "Imakefile.c" # Also used by gdb to test the system compiler
+]
+
+# Commands with arguments that match any of these regexes should be ignored,
+# as they are only used by the build system to extract info
+DISQUALIFYING_FLAGS = ["-v", "-V", "--?version", "-qversion", "--?print.*"]
+
 # Files whose absolute path end in the following should not pass through jlm-opt,
 # due to containing things like inline assembly and special intrinsics we do not currently support,
 # They get "kind": "C-nonjlm" in the output json
@@ -153,17 +167,8 @@ NONJLM_C_FILES = [
     "ghostscript-10.04.0/obj/gsromfs1.c",
 ]
 
-# All files whose full path end in one of the following should be skipped entirely
-IGNORED_FILES = [
-    "conftest.c", # Used by gdb to test the system compiler
-    "conftest1.c",
-    "conftest2.c",
-    "conftest.cpp",
-    "Imakefile.c" # Also used by gdb to test the system compiler
-]
-
 # When these flags appear on their own, the next argument belongs to it, and is not a positional argument
-FLAGS_WITH_ARGUMENTS = [
+C_FLAGS_WITH_ARGUMENTS = [
     "-I",
     "-include",
     "-D",
@@ -172,9 +177,10 @@ FLAGS_WITH_ARGUMENTS = [
     "-MF",
     "-MT",
 ]
+FORTRAN_FLAGS_WITH_ARGUMENTS = C_FLAGS_WITH_ARGUMENTS
 
 # Arguments that should be removed from the C compiler invocation when using jlm
-IGNORED_ARGUMENTS = [
+C_IGNORED_ARGUMENTS = [
     "-O",
     "-O0",
     "-O1",
@@ -203,14 +209,11 @@ IGNORED_ARGUMENTS = [
     "-gdwarf64",
     "-gfull",
 ]
+FORTRAN_IGNORED_ARGUMENTS = C_IGNORED_ARGUMENTS
 
-REPLACED_ARGUMENTS = {
+C_REPLACED_ARGUMENTS = {
     "-fstrict-flex-arrays": "-fstrict-flex-arrays=3"
 }
-
-# Commands with arguments that match any of these regexes should be ignored,
-# as they are only used by the build system to extract info
-DISQUALIFYING_FLAGS = ["-v", "-V", "--?version", "-qversion", "--?print.*"]
 
 def make_relative_to(path, base):
     """
@@ -266,7 +269,7 @@ class SourceFile:
         :param working_dir: the working directory for the compile command, relative to SCRIPT_ROOT
         :param srcfile: the file to compile, relative to working_dir
         :param ofile: the output object file, relative to working_dir
-        :param kind: the kind of file. Either "C", "C++" or "C-nonjlm".
+        :param kind: the kind of file.
         :param arguments: arguments to pass to the compilation command
         """
 
@@ -277,7 +280,7 @@ class SourceFile:
         self.kind = kind
         self.arguments = [arg for arg in arguments]
 
-        if self.kind not in ["C", "C++", "C-nonjlm"]:
+        if self.kind not in ["C", "C-nonjlm", "C++", "Fortran"]:
             raise ValueError(f"Unknown SourceFile kind: {kind}")
 
         full_path = os.path.join(self.working_dir, self.srcfile)
@@ -322,7 +325,7 @@ class SourceFile:
 
         # Let -x override file type
         if "-x" in arguments:
-            lang, _ = extract("-x", arguments)
+            lang, arguments = extract("-x", arguments)
             if lang in ["c", "C"]:
                 kind = "C"
             elif lang in ["c++", "C++"]:
@@ -342,8 +345,30 @@ class SourceFile:
         if "-o" in arguments:
             raise ValueError(f"-o arguments should already be filtered out")
 
-        arguments = [arg for arg in arguments if arg not in IGNORED_ARGUMENTS]
-        arguments = [REPLACED_ARGUMENTS.get(arg, arg) for arg in arguments]
+        arguments = [arg for arg in arguments if arg not in C_IGNORED_ARGUMENTS]
+        arguments = [C_REPLACED_ARGUMENTS.get(arg, arg) for arg in arguments]
+
+        # If nonjlm has not been specified, check the list
+        if nonjlm is None:
+            nonjlm = any(make_relative_to(os.path.join(working_dir, srcfile), SCRIPT_ROOT).endswith(s) for s in NONJLM_C_FILES)
+
+        if nonjlm:
+            kind += "-nonjlm"
+
+        return SourceFile(working_dir, srcfile, ofile, kind, arguments)
+
+    @classmethod
+    def for_fortranfile(cls, working_dir, srcfile, ofile, arguments):
+        """
+        Creates a SourceFile instance for a Fortran file,
+        while filtering out arguments that have been marked as being ignored,
+        and performing checks.
+        """
+
+        if "-o" in arguments:
+            raise ValueError(f"-o arguments should already be filtered out")
+
+        arguments = [arg for arg in arguments if arg not in FORTRAN_IGNORED_ARGUMENTS]
 
         # Remove duplicate arguments, while preserving order
         seen = set()
@@ -354,14 +379,7 @@ class SourceFile:
             return True
         arguments = [arg for arg in arguments if first_instance(arg)]
 
-        # If nonjlm has not been specified, check the list
-        if nonjlm is None:
-            nonjlm = any(make_relative_to(os.path.join(working_dir, srcfile), SCRIPT_ROOT).endswith(s) for s in NONJLM_C_FILES)
-
-        if nonjlm:
-            kind += "-nonjlm"
-
-        return SourceFile(working_dir, srcfile, ofile, kind, arguments)
+        return SourceFile(working_dir, srcfile, ofile, kind="Fortran", arguments=arguments)
 
 class Program:
     """
@@ -414,8 +432,8 @@ class Program:
             ofile = srcfile.get_full_ofile()
 
             if ofile not in expected_ofiles:
-                print(f"Warning: SourceFile ({srcfile.get_full_srcfile()}) produces ofile that is not requested: {ofile}")
-                # return False
+                # print(f"Warning: SourceFile ({srcfile.get_full_srcfile()}) produces ofile that is not requested: {ofile}")
+                return False
 
             if ofile in seen_ofiles:
                 other = seen_ofiles[ofile]
@@ -434,13 +452,16 @@ class Program:
                 print(ofile)
 
 
-def separate_compiler_arguments(arguments):
+def separate_compiler_arguments_generic(arguments, flags_with_arguments):
     """
-    Takes a list of arguments (exluding the executable itself),
-    and separates it into flags and positional arguments.
+    Takes a list of arguments and separates it into flags and positional arguments.
+    :param arguments: a list of command arguments (exluding the executable itself)
+    :param flags_with_arguments: a list of flags that take a following option
     :returns: a tuple of (flags, positional)
 
-    e.g. ["-c", "-I", "include", "file.c", "-o", "file.o"]
+    e.g. with "-I" and "-o" in flags_with_arguments, the input
+
+    ["-c", "-I", "include", "file.c", "-o", "file.o"]
 
     becomes
 
@@ -454,7 +475,7 @@ def separate_compiler_arguments(arguments):
         if arg.startswith("-"):
             flags.append(arg)
 
-            if arg in FLAGS_WITH_ARGUMENTS:
+            if arg in flags_with_arguments:
                 next_flag = True
         elif next_flag:
             flags.append(arg)
@@ -466,6 +487,12 @@ def separate_compiler_arguments(arguments):
         raise ValueError(f"Compile command ended with flag expecting an argument: {arguments}")
 
     return flags, positional
+
+def separate_c_compiler_arguments(arguments):
+    return separate_compiler_arguments_generic(arguments, C_FLAGS_WITH_ARGUMENTS)
+
+def separate_fortran_compiler_arguments(arguments):
+    return separate_compiler_arguments_generic(arguments, FORTRAN_FLAGS_WITH_ARGUMENTS)
 
 # ================================================================================
 #                Functions for extracting build steps from SPEC2017
@@ -480,7 +507,7 @@ def parse_cc_command(line, working_dir):
     if compiler_name not in C_COMPILERS:
         return None
 
-    flags, positional = separate_compiler_arguments(args[1:])
+    flags, positional = separate_c_compiler_arguments(args[1:])
 
     # If this is not a compilation, skip it
     if "-c" not in flags:
@@ -494,6 +521,26 @@ def parse_cc_command(line, working_dir):
 
     return SourceFile.for_cfile(working_dir, srcfile, ofile, flags)
 
+def parse_fortran_command(line, working_dir):
+    args = shlex.split(line)
+    if len(args) == 0:
+        return None
+
+    compiler_name = args[0].split("/")[-1]
+    if compiler_name not in FORTRAN_COMPILERS:
+        return None
+
+    flags, positional = separate_fortran_compiler_arguments(args[1:])
+
+    ofile, flags = extract("-o", flags)
+
+    if len(positional) != 1:
+        raise ValueError(f"Expected exactly one positional arg: {positional}")
+    srcfile = positional[0]
+
+    return SourceFile.for_fortranfile(working_dir, srcfile, ofile, flags)
+
+
 def parse_link_command(line, working_dir, srcfiles):
     args = shlex.split(line)
     if len(args) == 0:
@@ -503,7 +550,7 @@ def parse_link_command(line, working_dir, srcfiles):
     if linker_name not in LINKERS:
         return None
 
-    flags, positional = separate_compiler_arguments(args[1:])
+    flags, positional = separate_c_compiler_arguments(args[1:])
 
     if "-c" in args:
         raise ValueError(f"Not a linking command: {line}")
@@ -526,6 +573,11 @@ def program_from_spec_make(make_out_file):
     with open(make_out_file, 'r', encoding='utf-8') as make_out_fd:
         for line in make_out_fd:
             srcfile = parse_cc_command(line, working_dir)
+            if srcfile is not None:
+                srcfiles.append(srcfile)
+                continue
+
+            srcfile = parse_fortran_command(line, working_dir)
             if srcfile is not None:
                 srcfiles.append(srcfile)
                 continue
@@ -663,10 +715,20 @@ def program_from_folder(folder, data):
         inputs = [make_relative_to(os.path.join(working_dir, inp), SCRIPT_ROOT) for inp in inputs]
 
         # Skip ar commands that link ignored files as well
-        if any(inp.endswith(ignored) for inp in inputs for ignored in IGNORED_FILES):
+        if any(inp.endswith(ignored) for inp in inputs for ignored in DISQUALIFYING_FILES):
             return
 
         linker_inputs_map[output] = inputs
+
+    def handle_cp_command(arguments, working_dir):
+        assert len(arguments) == 2
+
+        source, destination = arguments
+
+        source = make_relative_to(os.path.join(working_dir, source), SCRIPT_ROOT)
+        destination = make_relative_to(os.path.join(working_dir, destination), SCRIPT_ROOT)
+
+        linker_inputs_map[destination] = [source]
 
     def handle_compile_command(flags, positional, working_dir):
         if len(positional) != 1:
@@ -677,8 +739,10 @@ def program_from_folder(folder, data):
         if "-o" in flags:
             ofile, flags = extract("-o", flags)
         else:
-            assert "." in srcfile
-            ofile = srcfile[:srcfile.rfind(".")] + ".o"
+            # When no output is specified, the default is to output in the working directory
+            ofile = os.path.basename(srcfile)
+            assert ofile.endswith(".c")
+            ofile = ofile[:-2] + ".o"
 
         srcfiles.append(SourceFile.for_cfile(working_dir=working_dir,
                                              srcfile=srcfile,
@@ -724,11 +788,14 @@ def program_from_folder(folder, data):
             working_dir = convert(working_dir)
             arguments = [convert(arg) for arg in arguments]
 
+        if executable == "cp" or executable.endswith("/cp"):
+            handle_cp_command(arguments, working_dir)
+
         if any(executable.endswith(cmd) for cmd in ARCHIVERS):
             handle_ar_command(arguments, working_dir)
 
         elif any(executable.endswith(c) for c in C_COMPILERS):
-            flags, positional = separate_compiler_arguments(arguments)
+            flags, positional = separate_c_compiler_arguments(arguments)
 
             # Skip commands that were executed only to extract info
             def should_skip_flag(flag):
@@ -739,7 +806,7 @@ def program_from_folder(folder, data):
             # Skip commands that compile or link ignored files (also compiled for info)
             def should_skip_filename(filename):
                 full_path = os.path.normpath(os.path.join(working_dir, filename))
-                return any(full_path.endswith(ignored) for ignored in IGNORED_FILES)
+                return any(full_path.endswith(ignored) for ignored in DISQUALIFYING_FILES)
             if any(should_skip_filename(filename) for filename in positional):
                 continue
 

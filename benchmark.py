@@ -23,16 +23,19 @@ class TaskSubprocessError(Exception):
     pass
 
 class Options:
+    DEFAULT_FORTRAN_COMPILER = "gfortran"
     DEFAULT_BUILD_DIR = "build/default/"
     DEFAULT_STATS_DIR = "statistics/default/"
     DEFAULT_JLM_OPT_VERBOSITY = 1
 
-    def __init__(self, llvm_bindir, build_dir, stats_dir, jlm_opt, jlm_opt_verbosity, timeout):
+    def __init__(self, llvm_bindir, fortran_compiler, build_dir, stats_dir, jlm_opt, jlm_opt_verbosity, timeout):
         self.llvm_bindir = llvm_bindir
         self.clang = os.path.join(llvm_bindir, "clang")
         self.clang_link = os.path.join(llvm_bindir, "clang++")
         self.opt = os.path.join(llvm_bindir, "opt")
         self.llvm_link = os.path.join(llvm_bindir, "llvm-link")
+
+        self.fortran_compiler = fortran_compiler
 
         self.build_dir = build_dir
         self.stats_dir = stats_dir
@@ -309,7 +312,7 @@ def ensure_folder_exists(path):
         pass # Someone else made the folder, no biggie
 
 
-def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
+def compile_file(tasks, full_name, workdir, cfile, kind, extra_clang_flags, stats_dir,
                  env_vars=None, opt_flags=None, jlm_opt_flags=None, jlm_opt_suffix=None):
     """
     Creates tasks for compiling the given file with the given arguments to clang.
@@ -317,6 +320,7 @@ def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
     :param full_name: should be a valid filename, unique to the program and source file
     :param workdir: the dir from which clang is invoked
     :param cfile: the name of the c file, relative to workdir
+    :param kind: the kind of c file (passed to -x). Either "c" or "c++"
     :param extra_clang_flags: the flags to pass to clang when making the .ll file
     :param stats_dir: the directory to place statistics files in
     :param env_vars: environment variables passed to the executed commands
@@ -341,10 +345,11 @@ def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
         combined_env_vars.update(env_vars)
 
     clang_command = [options.clang,
-                     "-c", cfile,
                      "-S", "-emit-llvm",
+                     "-x", kind,
+                     "-c", cfile,
                      "-o", clang_out,
-                     *extra_clang_flags]
+                     *extra_clang_flags,]
     tasks.append(Task(name=f"Compile {full_name} to LLVM IR",
                       input_files=[cfile],
                       output_files=[clang_out],
@@ -378,6 +383,36 @@ def compile_file(tasks, full_name, workdir, cfile, extra_clang_flags, stats_dir,
 
     return (clang_out, opt_out, jlm_opt_out)
 
+def compile_fortran_file(tasks, full_name, workdir, srcfile, extra_flags, env_vars=None):
+    """
+    Creates a task for compiling the given fortran file with the given arguments.
+    :param tasks: the list of tasks to append commands to
+    :param full_name: should be a valid filename, unique to the program and source file
+    :param workdir: the dir from which the fortran compiler is invoked
+    :param srcfile: the name of the fortran file, relative to workdir
+    :param extra_flags: the flags to pass to the fortran compiler
+    :param env_vars: environment variables passed to the executed command
+    :return: the path to the produced object file in the build dir
+    """
+    assert "/" not in full_name
+
+    objectfile_out = options.get_build_dir(f"{full_name}.o")
+
+    combined_env_vars = os.environ.copy()
+    if env_vars is not None:
+        combined_env_vars.update(env_vars)
+
+    fortran_command = [options.fortran_compiler,
+                       "-c", srcfile,
+                       "-o", objectfile_out,
+                       *extra_flags]
+    tasks.append(Task(name=f"Compile {full_name} to object file",
+                      input_files=[srcfile],
+                      output_files=[objectfile_out],
+                      action=lambda task: run_command(fortran_command, cwd=workdir, env_vars=combined_env_vars, timeout=options.timeout)))
+
+    return objectfile_out
+
 def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
                       env_vars=None, llvm_link_flags=None, opt_flags=None, jlm_opt_flags=None, clang_link_output=None, clang_link_workdir=None, clang_link_flags=None):
     """
@@ -410,8 +445,7 @@ def link_and_optimize(tasks, full_name, llfiles, direct_ofiles, stats_dir,
         combined_env_vars.update(env_vars)
 
     if llvm_link_flags is not None:
-        llvm_link_command = [options.llvm_link, "-S",
-                             *llfiles, "-o", llvm_link_out, *llvm_link_flags]
+        llvm_link_command = [options.llvm_link, "-S", *llfiles, "-o", llvm_link_out, *llvm_link_flags]
         tasks.append(Task(name=f"llvm-link {full_name}",
                           input_files=llfiles,
                           output_files=[llvm_link_out],
@@ -559,15 +593,17 @@ class Benchmark:
     def get_tasks(self, stats_dir, env_vars):
         tasks = []
 
-        # Maps from the ofile name used in sources, to the output file produced by jlm-opt
+        # Maps from the ofile path used in sources.json, to the output file produced by jlm-opt
         ofile_to_llfile = {}
+        # Maps from the ofile path used in sources.json, to the compiled object file in the build directory
+        ofile_to_objectfile = {}
 
         for i, srcfile in enumerate(self.srcfiles):
             full_name = self.get_full_srcfile_name(srcfile)
 
             if srcfile.kind == "C":
                 _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
-                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             kind="c", stats_dir=stats_dir, env_vars=env_vars,
                                              extra_clang_flags=[*self.extra_clang_flags, *srcfile.arguments],
                                              opt_flags=self.opt_flags,
                                              jlm_opt_flags=self.jlm_opt_flags,
@@ -578,7 +614,7 @@ class Benchmark:
             elif srcfile.kind == "C-nonjlm":
                 # Compile to LLVM IR, but skip jlm-opt
                 _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
-                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             kind="c", stats_dir=stats_dir, env_vars=env_vars,
                                              extra_clang_flags=[*self.extra_clang_flags_nonjlm, *srcfile.arguments],
                                              opt_flags=self.opt_flags)
 
@@ -587,11 +623,18 @@ class Benchmark:
             elif srcfile.kind == "C++" or srcfile.kind == "C++-nonjlm":
                 # Compile C++ to LLVM IR, no not use jlm-opt in any case
                 _, _, outfile = compile_file(tasks, full_name=full_name, workdir=srcfile.working_dir, cfile=srcfile.srcfile,
-                                             stats_dir=stats_dir, env_vars=env_vars,
+                                             kind="c++", stats_dir=stats_dir, env_vars=env_vars,
                                              extra_clang_flags=[*self.extra_clang_flags_cpp, *srcfile.arguments],
                                              opt_flags=self.opt_flags)
 
                 ofile_to_llfile[srcfile.get_ofile_abspath()] = outfile
+
+            elif srcfile.kind == "Fortran":
+                # Compile Fortran to machine code
+                objectfile_out = compile_fortran_file(tasks, full_name=full_name, workdir=srcfile.working_dir,
+                                               srcfile=srcfile.srcfile, env_vars=env_vars, extra_flags=srcfile.arguments)
+
+                ofile_to_objectfile[srcfile.get_ofile_abspath()] = objectfile_out
 
             else:
                 raise ValueError(f"Unknown SourceFile kind: {srcfile.kind}")
@@ -603,8 +646,11 @@ class Benchmark:
         for ofile in self.ofiles:
             if ofile in ofile_to_llfile:
                 llfiles.append(ofile_to_llfile[ofile])
+            elif ofile in ofile_to_objectfile:
+                direct_ofiles.append(ofile_to_objectfile[ofile])
             else:
                 direct_ofiles.append(ofile)
+                #raise ValueError(f"No command for producing {ofile} is known")
 
         link_and_optimize(tasks, full_name=self.name, llfiles=llfiles, direct_ofiles=direct_ofiles,
                           stats_dir=stats_dir, env_vars=env_vars,
@@ -777,6 +823,8 @@ def main():
                         help=f'Specify the jlm-opt binary used. [Required]')
     parser.add_argument('--sources', dest='sources_file', action='store', required=True,
                         help=f'Specify the sources.json file containing benchmark descriptions. [Required]')
+    parser.add_argument('--fortran-compiler', dest='fortran_compiler', action='store', default=Options.DEFAULT_FORTRAN_COMPILER,
+                        help=f'Specify the fortran compiler to use (only used for 507.cactuBSSN). [{Options.DEFAULT_FORTRAN_COMPILER}]')
     parser.add_argument('--builddir', dest='build_dir', action='store', default=Options.DEFAULT_BUILD_DIR,
                         help=f'Specify the build folder to build benchmarks in. [{Options.DEFAULT_BUILD_DIR}]')
     parser.add_argument('--statsdir', dest='stats_dir', action='store', default=Options.DEFAULT_STATS_DIR,
@@ -823,6 +871,7 @@ def main():
 
     global options
     options = Options(llvm_bindir=args.llvm_bindir,
+                      fortran_compiler=args.fortran_compiler,
                       build_dir=args.build_dir,
                       stats_dir=args.stats_dir,
                       jlm_opt=args.jlm_opt,
@@ -852,7 +901,9 @@ def main():
     if args.list_benchmarks:
         print(f"{len(benchmarks)} benchmarks:")
         for bench in benchmarks:
-            print(f"  {bench.name:<20} {len(bench.srcfiles):4d} C files")
+            num_jlm_cfiles = sum(srcfile.kind=="C" for srcfile in bench.srcfiles)
+            num_non_jlm_srcfiles = len(bench.srcfiles) - num_jlm_cfiles
+            print(f"  {bench.name:<30} {num_jlm_cfiles:4d} jlm-able C files + {num_non_jlm_srcfiles} other source files")
         sys.exit(0)
 
     offset = int(args.offset)
@@ -943,7 +994,7 @@ def configure_benchmark(bench, args):
     # bench.clang_link_output = None
 
     # Uncomment to disable all use of jlm-opt
-    # bench.jlm_opt_flags = None
+    bench.jlm_opt_flags = None
 
     # Uncomment to disable all passes in jlm-opt
     # bench.jlm_opt_flags = []
