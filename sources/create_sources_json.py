@@ -140,6 +140,17 @@ DISQUALIFYING_FILES = [
 # as they are only used by the build system to extract info
 DISQUALIFYING_FLAGS = ["-v", "-V", "--?version", "-qversion", "--?print.*"]
 
+# Object files whose full path end in one of the following are skipped
+# when making the final list for the linking command
+IGNORED_OFILES = [
+
+    # These files in gdb provide symbols that are already provided by other files
+    # This is normally not an issue when the object files are packaged in .a libraries,
+    # since the linker skips extracting .o-files that do not provide missing symbols.
+    "gdb-15.2/readline/readline/xmalloc.o",
+    "gdb-15.2/libiberty/xmalloc.o"
+]
+
 # Files whose absolute path end in the following should not pass through jlm-opt,
 # due to containing things like inline assembly and special intrinsics we do not currently support,
 # They get "kind": "C-nonjlm" in the output json
@@ -409,7 +420,8 @@ class Program:
         else:
             self.validator = None
 
-        self.remove_unused_srcfiles()
+        self._remove_ignored_ofiles()
+        self._remove_unused_srcfiles()
 
     def to_dict(self):
         result = {
@@ -424,7 +436,13 @@ class Program:
 
         return result
 
-    def remove_unused_srcfiles(self):
+    def _remove_ignored_ofiles(self):
+        def keep(ofile):
+            ofile_full = make_relative_to(os.path.join(self.linker_workdir, ofile), SCRIPT_ROOT)
+            return not any(ofile_full.endswith(ignored) for ignored in IGNORED_OFILES)
+        self.ofiles = [ofile for ofile in self.ofiles if keep(ofile)]
+
+    def _remove_unused_srcfiles(self):
         expected_ofiles = set(make_relative_to(os.path.join(self.linker_workdir, ofile), SCRIPT_ROOT) for ofile in self.ofiles)
 
         seen_ofiles = {}
