@@ -191,7 +191,7 @@ C_FLAGS_WITH_ARGUMENTS = [
 FORTRAN_FLAGS_WITH_ARGUMENTS = C_FLAGS_WITH_ARGUMENTS
 
 # Arguments that should be removed from the C compiler invocation when using jlm
-C_IGNORED_ARGUMENTS = [
+IGNORED_ARGUMENTS = [
     "-O",
     "-O0",
     "-O1",
@@ -220,6 +220,8 @@ C_IGNORED_ARGUMENTS = [
     "-gdwarf64",
     "-gfull",
 ]
+C_IGNORED_ARGUMENTS = [*IGNORED_ARGUMENTS, "-std=c++17"]
+CXX_IGNORED_ARGUMENTS = [*IGNORED_ARGUMENTS, "-std=c17"]
 FORTRAN_IGNORED_ARGUMENTS = C_IGNORED_ARGUMENTS
 
 C_REPLACED_ARGUMENTS = {
@@ -356,7 +358,9 @@ class SourceFile:
         if "-o" in arguments:
             raise ValueError(f"-o arguments should already be filtered out")
 
-        arguments = [arg for arg in arguments if arg not in C_IGNORED_ARGUMENTS]
+        ignored_arguments = CXX_IGNORED_ARGUMENTS if kind=="C++" else C_IGNORED_ARGUMENTS
+
+        arguments = [arg for arg in arguments if arg not in ignored_arguments]
         arguments = [C_REPLACED_ARGUMENTS.get(arg, arg) for arg in arguments]
 
         # If nonjlm has not been specified, check the list
@@ -428,7 +432,7 @@ class Program:
             "srcfiles": [srcfile.to_dict() for srcfile in self.srcfiles],
             "linker_workdir": self.linker_workdir,
             "ofiles": self.ofiles,
-            "elffile": self.linker_workdir,
+            "elffile": self.elffile,
             "linker_arguments": self.linker_arguments
             }
         if self.validator:

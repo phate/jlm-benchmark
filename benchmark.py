@@ -994,10 +994,10 @@ def configure_benchmark(bench, args):
     # bench.clang_link_output = None
 
     # Uncomment to disable all use of jlm-opt
-    bench.jlm_opt_flags = None
+    # bench.jlm_opt_flags = None
 
     # Uncomment to disable all passes in jlm-opt
-    # bench.jlm_opt_flags = []
+    bench.jlm_opt_flags = []
 
 
 if __name__ == "__main__":
