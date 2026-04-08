@@ -40,16 +40,43 @@ SPEC2017_PROGRAMS = [
 ]
 
 # Redistributable versions of spec benchmarks are created when possible
-# This map gives the respective folder names in the redist2017/extracted/ folder
+# They re-use the compilation commands from  the SPEC versions.
+# The "dir" field is the replacement path within in the redist2017/extracted/ folder
+# For some of the benchmarks, differences between cpu2017 and redist2017 make linking difficult, so we disable it.
 REDIST2017_PROGRAMS = {
-    # "redist2017-500.perlbench": "perl-5.22.1",
-    "redist2017-502.gcc": "502.gcc_r/src",
-    "redist2017-507.cactuBSSN": "507.cactuBSSN_r/src",
-    "redist2017-525.x264": "525.x264_r/src",
-    "redist2017-526.blender": "526.blender_r/src",
-    "redist2017-538.imagick": "ImageMagick-6.8.9-1",
-    "redist2017-557.xz": "557.xz_r/src",
-    "redist2017-544.nab": "544.nab_r/src"
+    # perl in redist fails to compile to LLVM IR
+    #"redist2017-500.perlbench": {
+    #    "dir": "perl-5.22.1",
+    #    "link": False
+    #},
+    "redist2017-502.gcc": {
+        "dir": "502.gcc_r/src",
+        "link": True
+    },
+    "redist2017-507.cactuBSSN": {
+        "dir": "507.cactuBSSN_r/src",
+        "link": True
+    },
+    "redist2017-525.x264": {
+        "dir": "525.x264_r/src",
+        "link": True
+    },
+    "redist2017-526.blender": {
+        "dir": "526.blender_r/src",
+        "link": True
+    },
+    "redist2017-538.imagick": {
+        "dir": "ImageMagick-6.8.9-1",
+        "link": False
+    },
+    "redist2017-557.xz": {
+        "dir": "557.xz_r/src",
+        "link": True
+    },
+    "redist2017-544.nab": {
+        "dir": "544.nab_r/src",
+        "link": True
+    }
 }
 
 # These programs are located directly in the PROGRAM_FOLDER
@@ -66,7 +93,8 @@ OTHER_PROGRAMS = {
         "elffile": "/gdb/gdb$"
     },
     "sendmail-8.18.1": {
-        "elffile": "/sendmail$"
+        "elffile": "/sendmail$",
+        "link": False
     }
 }
 
@@ -402,13 +430,14 @@ class Program:
     The compilation commands for creating the object files are included.
     Finally, an optional validator script is provided for testing the produced binary.
     """
-    def __init__(self, folder, srcfiles, linker_workdir, ofiles, elffile, linker_arguments, validator=None):
+    def __init__(self, folder, srcfiles, linker_workdir, ofiles, elffile=None, linker_arguments=None, validator=None):
         """
-        :param folder: the folder in which the program is, relative to SCRIPT_ROOT
+        :param folder: the folder in which the program is, relative to SCRIPT_ROOT. Only for information.
         :param srcfiles: a list of SourceFile objects representing compiling files into object files
         :param linker_wordir: the working dir of the linking command, relative to SCRIPT_ROOT
         :param ofiles: a list of linked object file paths, all relative to linker_workdir
-        :param elffile: the original name of the linker output, relative to linker_workdir
+        :param elffile: the original name of the linker output, relative to linker_workdir.
+                        use None to disable linking.
         :param linker_arguments: extra arguments given to the linker
         :param validator: optional path to validator script, relative to SCRIPT_ROOT
         """
@@ -417,8 +446,19 @@ class Program:
         self.srcfiles = [srcfile.copy() for srcfile in srcfiles]
         self.linker_workdir = ensure_relative_to(linker_workdir, SCRIPT_ROOT)
         self.ofiles = [ensure_relative_to(ofile, self.linker_workdir) for ofile in ofiles]
-        self.elffile = ensure_relative_to(elffile, self.linker_workdir)
-        self.linker_arguments = linker_arguments.copy()
+
+        if elffile:
+            self.elffile = ensure_relative_to(elffile, self.linker_workdir)
+        else:
+            self.elffile = None
+            # We should not have linker_arguments if we are not linking
+            assert linker_arguments is None
+
+        if linker_arguments:
+            self.linker_arguments = linker_arguments.copy()
+        else:
+            self.linker_arguments = []
+
         if validator:
             self.validator = ensure_relative_to(validator, SCRIPT_ROOT)
         else:
@@ -429,12 +469,15 @@ class Program:
 
     def to_dict(self):
         result = {
+            "folder": self.folder,
             "srcfiles": [srcfile.to_dict() for srcfile in self.srcfiles],
             "linker_workdir": self.linker_workdir,
             "ofiles": self.ofiles,
-            "elffile": self.elffile,
-            "linker_arguments": self.linker_arguments
-            }
+        }
+        if self.elffile:
+            result["elffile"] = self.elffile
+            result["linker_arguments"] = self.linker_arguments
+
         if self.validator:
             result["validator"] = self.validator
 
@@ -645,8 +688,10 @@ def redist_program_from_spec(redist_program_name, spec_program):
     """
     Takes the Program object from a spec2017 benchmark and converts it to its named redist version.
     """
+    redist_options = REDIST2017_PROGRAMS[redist_program_name]
+
     old_folder = spec_program.folder
-    new_folder = os.path.join(REDIST2017_FOLDER, REDIST2017_PROGRAMS[redist_program_name])
+    new_folder = os.path.join(REDIST2017_FOLDER, redist_options["dir"])
 
     assert not old_folder.endswith("/")
     assert not new_folder.endswith("/")
@@ -659,19 +704,25 @@ def redist_program_from_spec(redist_program_name, spec_program):
     for old_srcfile in spec_program.srcfiles:
         srcfile = old_srcfile.copy()
         srcfile.working_dir = replace(srcfile.working_dir)
-        srcfiles.append(srcfile)
-
-    linker_workdir = replace(spec_program.linker_workdir)
+        if os.path.exists(srcfile.get_full_srcfile()):
+            srcfiles.append(srcfile)
 
     if redist_program_name.endswith("538.imagick"):
         # SPEC modifies the magick-config.h file to add these, so we have add them to the commands instead
         for srcfile in srcfiles:
             srcfile.arguments.extend(["-DMAGICKCORE_HDRI_ENABLE=0", "-DMAGICKCORE_QUANTUM_DEPTH=16"])
 
-    return Program(folder=new_folder, srcfiles=srcfiles, linker_workdir=linker_workdir,
-                   ofiles=spec_program.ofiles,
-                   elffile=spec_program.elffile,
-                   linker_arguments=spec_program.linker_arguments)
+    kwargs = {
+        "folder": new_folder,
+        "srcfiles": srcfiles,
+        "linker_workdir": replace(spec_program.linker_workdir),
+        "ofiles": spec_program.ofiles
+    }
+    if redist_options["link"]:
+        kwargs["elffile"] = spec_program.elffile
+        kwargs["linker_arguments"] = spec_program.linker_arguments
+
+    return Program(**kwargs)
 
 
 # =====================================================================
@@ -681,6 +732,8 @@ def program_from_folder(folder, data):
 
     # A regex matching the path of the final output binary
     elffile_regex = data["elffile"]
+    # Should we attempt to link the benchmark
+    should_link = data.get("link", True)
 
     # An optional path to a script used to validate the produced binary
     validator = data.get("validator", None)
@@ -787,8 +840,16 @@ def program_from_folder(folder, data):
             # The final set of ofiles, relative to working_dir
             ofiles = collect_linker_inputs_recursive(ofile_abs)
 
+            if should_link:
+                elffile = ofile
+                linker_arguments=flags
+            else:
+                elffile = None
+                linker_arguments=None
+
             return Program(folder=folder, srcfiles=srcfiles, linker_workdir=working_dir,
-                           ofiles=ofiles, elffile=ofile, linker_arguments=flags, validator=validator)
+                           ofiles=ofiles, elffile=elffile, linker_arguments=linker_arguments,
+                           validator=validator)
 
 
     for event_line in event_lines:

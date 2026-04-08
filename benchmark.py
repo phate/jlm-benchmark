@@ -690,17 +690,21 @@ def get_benchmarks(sources_json):
             continue
 
         ofiles = data["ofiles"]
-        linker_output = name
         linker_workdir = os.path.join(sources_folder, data["linker_workdir"])
-        linker_arguments = data["linker_arguments"]
+
+        # If an output elffile is specified in the json, the benchmark is linkable
+        if "elffile" in data:
+            assert len(ofiles) != 0
+            linker_output = name
+            linker_arguments = data["linker_arguments"]
+        else:
+            # Otherwise disable linking
+            linker_output = None
+            linker_arguments = None
 
         validator = data.get("validator", None)
         if validator is not None:
             validator = os.path.join(sources_folder, validator)
-
-        if len(ofiles) == 0:
-            # Disable linking if we have not tracked linking properly
-            linker_output = None
 
         benchmarks.append(Benchmark(name=name,
                                     srcfiles=srcfiles,
@@ -991,7 +995,7 @@ def configure_benchmark(bench, args):
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
     # Uncomment to disable linking
-    bench.clang_link_output = None
+    # bench.clang_link_output = None
 
     # Uncomment to disable all use of jlm-opt
     # bench.jlm_opt_flags = None

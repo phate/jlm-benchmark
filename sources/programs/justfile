@@ -176,7 +176,7 @@ extract-redist2017-perlbench:
     [[ -d {{redist2017-extracted}}/perl-5.22.1 ]] && exit 0
 
     mkdir -p {{redist2017-extracted}}
-    tar -xvf {{redist2017-srcs}}/original/500.perlbench/perl-5.22.1.tar.xz -C {{redist2017-extracted}}
+    tar xf {{redist2017-srcs}}/original/500.perlbench/perl-5.22.1.tar.xz -C {{redist2017-extracted}}
 
     pushd {{redist2017-extracted}}/perl-5.22.1
     ./Configure -Dcc="{{CC}}" -Accflags="{{CFLAGS}}" -de
@@ -186,14 +186,14 @@ extract-redist2017-common name:
     #!/usr/bin/bash -eux
     [[ -d {{redist2017-extracted}}/{{name}} ]] && exit 0
     mkdir -p {{redist2017-extracted}}
-    tar -xvf {{redist2017-srcs}}/modified/{{name}}.tar.xz -C {{redist2017-extracted}}
+    tar xf {{redist2017-srcs}}/modified/{{name}}.tar.xz -C {{redist2017-extracted}}
 
 extract-redist2017-imagick:
     #!/usr/bin/bash -eux
     [[ -d {{redist2017-extracted}}/ImageMagick-6.8.9-1 ]] && exit 0
 
     mkdir -p {{redist2017-extracted}}
-    tar -xvf {{redist2017-srcs}}/original/538.imagick/ImageMagick-6.8.9-1.tar.xz -C {{redist2017-extracted}}
+    tar xf {{redist2017-srcs}}/original/538.imagick/ImageMagick-6.8.9-1.tar.xz -C {{redist2017-extracted}}
 
     cd {{redist2017-extracted}}/ImageMagick-6.8.9-1
     # SPEC uses these options, by hard coding them into magick-config.h
@@ -236,7 +236,7 @@ extract-cpu2017:
        mkdir -p {{cpu2017-dir}}/install_archives
        ln -s `readlink -f {{cpu2017-tar}}` {{cpu2017-dir}}/install_archives/cpu2017.tar.xz
        cd {{cpu2017-dir}}
-       tar -xvf install_archives/cpu2017.tar.xz \
+       tar xf install_archives/cpu2017.tar.xz \
             tools/bin/linux-x86_64 \
             bin/harness/runcpu \
             bin/scripts.misc/exec_test \
