@@ -16,7 +16,7 @@ build-all-benchmarks:
     just programs/extract-embench
 
     # Polybench is already extracted in the repo
-    # Polybench and embench are not built, as they
+    # Polybench and embench are not built and traced, as their compilation commands are simple
 
 # After all benchmarks have been built and traced, create sources.json
 create-sources-json:
