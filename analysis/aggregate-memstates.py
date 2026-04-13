@@ -195,16 +195,16 @@ def main():
         return os.path.join(args.stats_out, filename)
 
     data = (
-        make_file_data(os.path.join(args.stats_in, "ci"), "RegionAwareModRef"),
+        # make_file_data(os.path.join(args.stats_in, "ci"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "debug-raware"), "RegionAwareModRef"),
-        ## make_file_data(os.path.join(args.stats_in, "raware"), "RegionAwareModRef"),
+        make_file_data(os.path.join(args.stats_in, "raware"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "raware-no-tricks"), "RegionAwareModRef-NoTricks"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-dead-alloca-blocklist"), "RegionAwareModRef-OnlyDeadAllocaBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-non-reentrant-alloca-blocklist"), "RegionAwareModRef-OnlyNonReeentrantAllocaBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-operation-size-blocking"), "RegionAwareModRef-OnlyOperationSizeBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-constant-memory-blocking"), "RegionAwareModRef-OnlyConstantMemoryBlocking"),
         #make_file_data(os.path.join(args.stats_in, "agnostic"), "AgnosticModRef"),
-        ## make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg")
+        make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg")
     )
     file_data = pd.concat(data)
 
