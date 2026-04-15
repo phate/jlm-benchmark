@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import argparse
 import re
+import json
 
 def get_memory_node_counts(suffix):
     return [
@@ -48,6 +49,11 @@ METRICS_MAPPING = {
     "RegionAwareModRefSummarizer": [
         "#SimpleAllocas",
         "#NonReentrantAllocas",
+        "#ExtModRefSets",
+        "#ExtModRefCompressed",
+        "#ExtModRefKept",
+        "#LocalModRefSets",
+        "#LocalModRefKept",
         "CallGraphTimer[ns]",
         "AllocasDeadInSccsTimer[ns]",
         "SimpleAllocasSetTimer[ns]",
@@ -55,6 +61,7 @@ METRICS_MAPPING = {
         "CreateExternalModRefSetTimer[ns]", # Node
         "AnnotationTimer[ns]",
         "SolvingTimer[ns]",
+        "ExternalCompactionTimer[ns]"
         #"CreateMemoryNodeOrderingTimer[ns]",
         #"CreateModRefSummaryTimer[ns]",
     ],
@@ -87,20 +94,31 @@ METRICS_MAPPING = {
 }
 
 def read_rvsdg_tree(path, prefix):
+    with open(path) as fd:
+        root_region_data = json.load(fd)
+
     data = {
         "NumAllocaNodes": 0,
         "NumStoreNodes": 0,
         "NumLoadNodes": 0,
         "NumMemoryStateTypeArguments": 0
     }
-    with open(path, encoding='utf-8') as fd:
-        for line in fd:
-            if "Region" not in line:
+
+    def process(region_data):
+        for key in data.keys():
+            if key in region_data:
+                data[key] += int(region_data[key])
+        if "StructuralNodes" not in region_data:
+            return
+
+        for node_data in region_data["StructuralNodes"]:
+            if "Subregions" not in node_data:
                 continue
-            for part in line.split(" ")[1:]:
-                stat, value = part.split(":")
-                if stat in data:
-                    data[stat] = data[stat] + int(value)
+
+            for subregion_data in node_data["Subregions"]:
+                process(subregion_data)
+
+    process(root_region_data)
 
     return { f"{prefix}{key}": value for key, value in data.items() }
 
@@ -173,7 +191,8 @@ def calculate_total_ramrs_time(file_data):
         file_data["NonReentrantAllocaSetsTimer[ns]"] +
         file_data["CreateExternalModRefSetTimer[ns]"] +
         file_data["AnnotationTimer[ns]"] +
-        file_data["SolvingTimer[ns]"])
+        file_data["SolvingTimer[ns]"] +
+        file_data["ExternalCompactionTimer[ns]"].fillna(0))
 
 def make_file_data(folder, configuration):
     file_data = extract_file_data(folder)
@@ -204,6 +223,7 @@ def main():
         #make_file_data(os.path.join(args.stats_in, "raware-only-operation-size-blocking"), "RegionAwareModRef-OnlyOperationSizeBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-constant-memory-blocking"), "RegionAwareModRef-OnlyConstantMemoryBlocking"),
         #make_file_data(os.path.join(args.stats_in, "agnostic"), "AgnosticModRef"),
+        #make_file_data(os.path.join(args.stats_in, "raware-nocompress"), "RegionAwareModRef-NoCompression")
         make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg")
     )
     file_data = pd.concat(data)

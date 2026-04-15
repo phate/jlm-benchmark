@@ -127,7 +127,7 @@ def plot_scatter(file_data, configuration, x_axis, y_axis, savefig=None, plotly=
     else:
         plt.show()
 
-def plot_scatter_between_configs(file_data, column, x_axis, y_axis, savefig=None, plotly=False):
+def plot_scatter_between_configs(file_data, column, x_axis, y_axis, savefig=None, plotly=False, line=False):
     data_x = file_data[file_data["Configuration"] == x_axis].set_index("cfile")[column]
     data_y = file_data[file_data["Configuration"] == y_axis].set_index("cfile")[column]
 
@@ -135,6 +135,11 @@ def plot_scatter_between_configs(file_data, column, x_axis, y_axis, savefig=None
 
     if plotly:
         fig = px.scatter(data, x=x_axis, y=y_axis, title=column, hover_data=['cfile'])
+        if line:
+            lo = min(data[x_axis].min(), data[y_axis].min())
+            hi = max(data[x_axis].max(), data[y_axis].max())
+            fig.add_shape(type="line", x0=lo, y0=lo, x1=hi, y1=hi)
+
         fig.show()
         return
 
@@ -306,11 +311,13 @@ def main():
     file_data = file_data[file_data["cfile"].map(keep_cfiles)]
 
     raware_configurations = ["RegionAwareModRef",
-                             "RegionAwareModRef-OnlyDeadAllocaBlocking",
-                             "RegionAwareModRef-OnlyNonReeentrantAllocaBlocking",
-                             "RegionAwareModRef-OnlyOperationSizeBlocking",
-                             "RegionAwareModRef-OnlyConstantMemoryBlocking",
-                             "RegionAwareModRef-NoTricks"]
+                             "Mem2Reg"]
+                             #, "RegionAwareModRef-NoCompression"
+                             #"RegionAwareModRef-OnlyDeadAllocaBlocking",
+                             #"RegionAwareModRef-OnlyNonReeentrantAllocaBlocking",
+                             #"RegionAwareModRef-OnlyOperationSizeBlocking",
+                             #"RegionAwareModRef-OnlyConstantMemoryBlocking",
+                             #"RegionAwareModRef-NoTricks"]
     #passes = [
     #    "RvsdgConstructionTime[us]",
     #    "RvsdgDestructionTime[us]",
@@ -326,6 +333,7 @@ def main():
         "CreateExternalModRefSetTimer[ns]",
         "AnnotationTimer[ns]",
         "SolvingTimer[ns]",
+        "ExternalCompactionTimer[ns]",
         ]
     table_quartiles_per_column(file_data, "RegionAwareModRef", raware_steps)
 
@@ -349,8 +357,17 @@ def main():
     table_quartiles_per_configuration(file_data, raware_configurations, "MemoryStateEncodingTime[ns]")
     table_quartiles_per_configuration(file_data, raware_configurations, "RegionAwareModRefSummarizerTime[ns]")
     table_quartiles_per_configuration(file_data, raware_configurations, "StoreValueForwardingTime[ns]")
+    table_quartiles_per_configuration(file_data, raware_configurations, "TotalTime[ns]")
+
+    plot_scatter_between_configs(file_data, "StoreValueForwardingTime[ns]", x_axis="RegionAwareModRef", y_axis="Mem2Reg", plotly=True, line=True)
 
     print()
+
+    # comp_data = file_data[file_data["Configuration"] == "RegionAwareModRef"].copy()
+    # comp_data["kept"]= comp_data["#LocalModRefKept"] + comp_data["#ExtModRefKept"]
+    # comp_data["removed"] = comp_data["#ExtModRefCompressed"]
+
+    # plot_scatter(comp_data, "RegionAwareModRef", x_axis="kept", y_axis="removed", plotly=True)
 
     #table_quartiles_per_configuration(file_data, raware_configurations, "#TotalMemoryStateArguments")
     #file_data["AverageMemoryStateArguments"] = file_data["#TotalMemoryStateArguments"] / file_data["#IntraProceduralRegions"]

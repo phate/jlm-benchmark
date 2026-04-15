@@ -35,7 +35,8 @@ EXTRACT_EMBENCH=false
 # If true, a real copy of cpu2017 is used, instead of the included redist2017
 FULL_SPEC=false
 # Path to sources json file containing benchmark compilation descriptions
-SOURCES_JSON="sources/sources.json"
+# This can be overwritten from the .env file, to use sources-arch.json
+SOURCES_JSON=${SOURCES_JSON:-"sources/sources.json"}
 
 # Parameters for deciding what tasks the script should perform
 BUILD_JLM=false
@@ -319,10 +320,16 @@ set -x
 	--regionAwareModRef --builddir build/raware --statsdir statistics/raware \
 	|| true
 
+#JLM_DISABLE_EXTERN_COMPRESSION=1 ./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+#	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+#	--regionAwareModRef --builddir build/raware --statsdir statistics/raware-nocompress \
+#	|| true
+
 ./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
 	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
 	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r
 
-# Finally run some data aggregation and analysis
+# Finally run some data aggregation
 just aggregate
+# Also try running and printing some analysis
 just analyze-all
