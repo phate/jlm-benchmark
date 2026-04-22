@@ -953,6 +953,7 @@ def configure_benchmark(bench, args):
 
     # The top one leads to no tbaa info, while the bottom one includes it
     bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
+    # bench.extra_clang_flags = ["-Os"]
     # bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
 
     if args.useMem2reg:

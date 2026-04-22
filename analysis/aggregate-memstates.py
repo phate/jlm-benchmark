@@ -85,6 +85,8 @@ METRICS_MAPPING = {
     "StoreValueForwarding": [
         "#TotalLoads",
         "#LoadsForwarded",
+        ("TracingTime[ns]", "SvfTracingTime[ns]"),
+        ("ForwardingTime[ns]", "SvfForwardingTime[ns]"),
         ("Time[ns]", "StoreValueForwardingTime[ns]")
     ],
     "RVSDGOPTIMIZATION": map_optimization_statistic,
@@ -192,7 +194,7 @@ def calculate_total_ramrs_time(file_data):
         file_data["CreateExternalModRefSetTimer[ns]"] +
         file_data["AnnotationTimer[ns]"] +
         file_data["SolvingTimer[ns]"] +
-        file_data["ExternalCompactionTimer[ns]"].fillna(0))
+        file_data["ExternalCompactionTimer[ns]"])
 
 def make_file_data(folder, configuration):
     file_data = extract_file_data(folder)
@@ -214,17 +216,17 @@ def main():
         return os.path.join(args.stats_out, filename)
 
     data = (
+        make_file_data(os.path.join(args.stats_in, "raware"), "RegionAwareModRef"),
+        #make_file_data(os.path.join(args.stats_in, "raware-nocompress"), "RegionAwareModRef-NoCompression"),
+        make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg"),
         # make_file_data(os.path.join(args.stats_in, "ci"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "debug-raware"), "RegionAwareModRef"),
-        make_file_data(os.path.join(args.stats_in, "raware"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "raware-no-tricks"), "RegionAwareModRef-NoTricks"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-dead-alloca-blocklist"), "RegionAwareModRef-OnlyDeadAllocaBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-non-reentrant-alloca-blocklist"), "RegionAwareModRef-OnlyNonReeentrantAllocaBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-operation-size-blocking"), "RegionAwareModRef-OnlyOperationSizeBlocking"),
         #make_file_data(os.path.join(args.stats_in, "raware-only-constant-memory-blocking"), "RegionAwareModRef-OnlyConstantMemoryBlocking"),
         #make_file_data(os.path.join(args.stats_in, "agnostic"), "AgnosticModRef"),
-        #make_file_data(os.path.join(args.stats_in, "raware-nocompress"), "RegionAwareModRef-NoCompression")
-        make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg")
     )
     file_data = pd.concat(data)
 
