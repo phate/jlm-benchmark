@@ -89,6 +89,10 @@ METRICS_MAPPING = {
         ("ForwardingTime[ns]", "SvfForwardingTime[ns]"),
         ("Time[ns]", "StoreValueForwardingTime[ns]")
     ],
+    "DeadNodeElimination": [
+        ("MarkTime[ns]", "DNEMarkTime[ns]"),
+        ("SweepTime[ns]", "DNESweepTime[ns]"),
+    ],
     "RVSDGOPTIMIZATION": map_optimization_statistic,
     "RVSDGDESTRUCTION": [
         ("Time[ns]", "RvsdgDestructionTime[ns]")

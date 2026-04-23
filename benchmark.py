@@ -960,7 +960,7 @@ def configure_benchmark(bench, args):
         bench.opt_flags = ["-passes=mem2reg"]
 
     # Configure the flags sent to jlm-opt here
-    bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization"]
+    bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization", "--print-dne-stat"]
     bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
