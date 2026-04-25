@@ -311,7 +311,6 @@ def main():
     file_data = file_data[file_data["cfile"].map(keep_cfiles)]
 
     raware_configurations = ["RegionAwareModRef",
-                             #"RegionAwareModRef-NoCompression",
                              "Mem2Reg"]
                              #, "RegionAwareModRef-NoCompression"
                              #"RegionAwareModRef-OnlyDeadAllocaBlocking",
@@ -334,7 +333,7 @@ def main():
         "CreateExternalModRefSetTimer[ns]",
         "AnnotationTimer[ns]",
         "SolvingTimer[ns]",
-        #"ExternalCompactionTimer[ns]",
+        "ExternalCompactionTimer[ns]",
         ]
     table_quartiles_per_column(file_data, "RegionAwareModRef", raware_steps)
 
@@ -361,9 +360,12 @@ def main():
     table_quartiles_per_configuration(file_data, raware_configurations, "TotalTime[ns]")
 
     #plot_scatter_between_configs(file_data, "StoreValueForwardingTime[ns]", x_axis="RegionAwareModRef", y_axis="RegionAwareModRef-NoCompression", plotly=True, line=True)
-    plot_scatter_between_configs(file_data, "StoreValueForwardingTime[ns]", x_axis="Mem2Reg", y_axis="RegionAwareModRef-NoCompression", plotly=True, line=True)
+    #plot_scatter_between_configs(file_data, "StoreValueForwardingTime[ns]", x_axis="Mem2Reg", y_axis="RegionAwareModRef-NoCompression", plotly=True, line=True)
 
     print()
+
+    table_quartiles_per_configuration(file_data, raware_configurations, "SvfTracingTime[ns]")
+    table_quartiles_per_configuration(file_data, raware_configurations, "SvfForwardingTime[ns]")
 
     # comp_data = file_data[file_data["Configuration"] == "RegionAwareModRef"].copy()
     # comp_data["kept"]= comp_data["#LocalModRefKept"] + comp_data["#ExtModRefKept"]
