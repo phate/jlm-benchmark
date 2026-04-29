@@ -105,6 +105,7 @@ def read_rvsdg_tree(path, prefix):
 
     data = {
         "NumAllocaNodes": 0,
+        "NumAggregateAllocaNodes": 0,
         "NumStoreNodes": 0,
         "NumLoadNodes": 0,
         "NumMemoryStateTypeArguments": 0
@@ -221,8 +222,11 @@ def main():
 
     data = (
         make_file_data(os.path.join(args.stats_in, "raware"), "RegionAwareModRef"),
-        #make_file_data(os.path.join(args.stats_in, "raware-nocompress"), "RegionAwareModRef-NoCompression"),
+        make_file_data(os.path.join(args.stats_in, "raware-Os"), "Os"),
+        make_file_data(os.path.join(args.stats_in, "raware-O3"), "O3"),
         make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg"),
+        #make_file_data(os.path.join(args.stats_in, "raware-nocompress"), "RegionAwareModRef-NoCompression"),
+        #make_file_data(os.path.join(args.stats_in, "m2r"), "Mem2Reg"),
         # make_file_data(os.path.join(args.stats_in, "ci"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "debug-raware"), "RegionAwareModRef"),
         #make_file_data(os.path.join(args.stats_in, "raware-no-tricks"), "RegionAwareModRef-NoTricks"),

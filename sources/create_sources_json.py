@@ -185,10 +185,13 @@ IGNORED_OFILES = [
 NONJLM_C_FILES = [
     "emacs-29.4/src/bytecode.c",
     "emacs-29.4/src/json.c",
+    "emacs-29.4/src/gtkutil.c",
+    "emacs-29.4/src/emacsgtkfixed.c",
     "gdb-15.2/libiberty/sha1.c",
     "gdb-15.2/libbacktrace/mmap.c",
     "gdb-15.2/libbacktrace/dwarf.c",
     "gdb-15.2/libbacktrace/elf.c",
+    "gdb-15.2/libbacktrace/fileline.c",
     "ghostscript-10.04.0/leptonica/src/bytearray.c",
     "ghostscript-10.04.0/leptonica/src/boxbasic.c",
     "ghostscript-10.04.0/leptonica/src/ccbord.c",

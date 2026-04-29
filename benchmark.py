@@ -869,6 +869,10 @@ def main():
                         help='Uses region aware memory state encoding')
     parser.add_argument('--useMem2reg', action='store_true', dest='useMem2reg',
                         help='Uses LLVM opt\'s mem2reg pass')
+    parser.add_argument('--useOs', action='store_true', dest='useOs',
+                        help='Uses clang\'s Os')
+    parser.add_argument('--useO3', action='store_true', dest='useO3',
+                        help='Uses clang\'s O3')
 
 
     args = parser.parse_args()
@@ -952,20 +956,27 @@ def configure_benchmark(bench, args):
     """
 
     # The top one leads to no tbaa info, while the bottom one includes it
-    # bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
-    bench.extra_clang_flags = ["-Os", "-fno-vectorize", "-fno-slp-vectorize"]
-    # bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
+    bench.extra_clang_flags = ["-Xclang", "-disable-O0-optnone"]
+    #bench.extra_clang_flags = ["-O2", "-Xclang", "-disable-llvm-passes"]
 
-    if args.useMem2reg:
+    if args.useOs:
+        bench.extra_clang_flags = ["-Os", "-fno-vectorize", "-fno-slp-vectorize"]
+    elif args.useO3:
+        bench.extra_clang_flags = ["-O3", "-fno-vectorize", "-fno-slp-vectorize"]
+    elif args.useMem2reg:
         bench.opt_flags = ["-passes=mem2reg"]
+
+    # Don't use multiple at once!
+    assert args.useOs + args.useO3 + args.useMem2reg <= 1
 
     # Configure the flags sent to jlm-opt here
     bench.jlm_opt_flags = ["--print-andersen-analysis", "--print-store-value-forwarding", "--print-rvsdg-construction", "--print-rvsdg-destruction", "--print-rvsdg-optimization", "--print-dne-stat"]
-    bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes")# , "--print-aa-precision-evaluation"]
+    bench.jlm_opt_flags.append("--annotations=NumMemoryStateInputsOutputs,NumLoadNodes,NumStoreNodes,NumAllocaNodes,NumAggregateAllocaNodes")# , "--print-aa-precision-evaluation"]
 
     bench.jlm_opt_flags.append("--RvsdgTreePrinter")
 
-    bench.jlm_opt_flags.extend(["--FunctionInlining",
+    bench.jlm_opt_flags.extend([
+                                #"--FunctionInlining", # We do not allow clang to inline, so it would be unfair
                                 "--PredicateCorrelation",
                                 #"--LoopUnswitching",
                                 "--CommonNodeElimination",

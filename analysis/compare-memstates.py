@@ -311,6 +311,8 @@ def main():
     file_data = file_data[file_data["cfile"].map(keep_cfiles)]
 
     raware_configurations = ["RegionAwareModRef",
+                             "Os",
+                             "O3",
                              "Mem2Reg"]
                              #, "RegionAwareModRef-NoCompression"
                              #"RegionAwareModRef-OnlyDeadAllocaBlocking",
@@ -366,6 +368,7 @@ def main():
 
     table_quartiles_per_configuration(file_data, raware_configurations, "SvfTracingTime[ns]")
     table_quartiles_per_configuration(file_data, raware_configurations, "SvfForwardingTime[ns]")
+    table_quartiles_per_configuration(file_data, raware_configurations, "#LoadsForwarded")
 
     # comp_data = file_data[file_data["Configuration"] == "RegionAwareModRef"].copy()
     # comp_data["kept"]= comp_data["#LocalModRefKept"] + comp_data["#ExtModRefKept"]
@@ -382,32 +385,51 @@ def main():
 
     print()
 
-    table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes", "Tree4-NumAllocaNodes"])
-    table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
-    table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree0-NumLoadNodes")
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree4-NumLoadNodes")
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree0-NumStoreNodes")
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree4-NumStoreNodes")
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree0-NumAllocaNodes")
+    table_quartiles_per_configuration(file_data, raware_configurations, "Tree4-NumAllocaNodes")
+    #table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes", "Tree4-NumAllocaNodes"])
+    #table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
+    #table_quartiles_per_column(file_data, "RegionAwareModRef", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
 
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes", "Tree4-NumAllocaNodes"])
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
-    table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
+    #table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes", "Tree4-NumAllocaNodes"])
+    #table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes", "Tree4-NumStoreNodes"])
+    #table_quartiles_per_column(file_data, "Mem2Reg", ["Tree0-NumLoadNodes", "Tree1-NumLoadNodes", "Tree2-NumLoadNodes", "Tree3-NumLoadNodes", "Tree4-NumLoadNodes"])
 
     print()
 
     print("Total number of files:", file_data["cfile"].nunique())
 
-    less_loads, equal_loads, more_loads = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumLoadNodes", "Mem2Reg", "Tree0-NumLoadNodes")
-    less_stores, equal_stores, more_stores = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumStoreNodes", "Mem2Reg", "Tree0-NumStoreNodes")
-    less_allocas, equal_allocas, more_allocas = less_equal_more(file_data, "RegionAwareModRef", "Tree4-NumAllocaNodes", "Mem2Reg", "Tree0-NumAllocaNodes")
+    def compare(c1, tree1, c2, tree2):
+        print(f"Comparing {c1}'s {tree1} to {c2}'s {tree2}:")
+        less_loads, equal_loads, more_loads = less_equal_more(file_data, c1, f"{tree1}-NumLoadNodes", c2, f"{tree2}-NumLoadNodes")
+        less_stores, equal_stores, more_stores = less_equal_more(file_data, c1, f"{tree1}-NumStoreNodes", c2, f"{tree2}-NumStoreNodes")
+        less_allocas, equal_allocas, more_allocas = less_equal_more(file_data, c1, f"{tree1}-NumAllocaNodes", c2, f"{tree2}-NumAllocaNodes")
 
-    print_less_equal_more("Loads", less_loads, equal_loads, more_loads)
-    print_less_equal_more("Stores", less_stores, equal_stores, more_stores)
-    print_less_equal_more("Allocas", less_allocas, equal_allocas, more_allocas)
+        print_less_equal_more("Loads", less_loads, equal_loads, more_loads)
+        print_less_equal_more("Stores", less_stores, equal_stores, more_stores)
+        print_less_equal_more("Allocas", less_allocas, equal_allocas, more_allocas)
 
-    print_less_equal_more("AllThree", less_loads&less_stores&less_allocas, equal_loads&equal_stores&equal_allocas, more_loads&more_stores&more_allocas)
+        print_less_equal_more("AllThree", less_loads&less_stores&less_allocas, equal_loads&equal_stores&equal_allocas, more_loads&more_stores&more_allocas)
+        print()
+
+    compare("RegionAwareModRef", "Tree4", "O3", "Tree0")
+    #compare("RegionAwareModRef", "Tree0", "O3", "Tree0")
+    compare("O3", "Tree4", "O3", "Tree0")
+
+    compare("RegionAwareModRef", "Tree4", "Os", "Tree0")
+    #compare("RegionAwareModRef", "Tree0", "Os", "Tree0")
+    compare("Os", "Tree4", "Os", "Tree0")
+
+
 
     print()
 
-    table_quartiles_per_column(file_data, "RegionAwareModRef", ["#TotalLoads", "#LoadsForwarded"])
-    table_quartiles_per_column(file_data, "Mem2Reg", ["#TotalLoads", "#LoadsForwarded"])
+    #table_quartiles_per_column(file_data, "RegionAwareModRef", ["#TotalLoads", "#LoadsForwarded"])
+    #table_quartiles_per_column(file_data, "Mem2Reg", ["#TotalLoads", "#LoadsForwarded"])
 
     #table_quartiles_per_column(file_data, "AgnosticModRef", ["Tree0-NumAllocaNodes", "Tree1-NumAllocaNodes", "Tree2-NumAllocaNodes", "Tree3-NumAllocaNodes"])
     #table_quartiles_per_column(file_data, "AgnosticModRef", ["Tree0-NumStoreNodes", "Tree1-NumStoreNodes", "Tree2-NumStoreNodes", "Tree3-NumStoreNodes"])

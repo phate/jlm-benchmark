@@ -315,16 +315,24 @@ mkdir -p build statistics
 set -x
 #./benchmark.py --jlm-opt="${JLM_OPT}" --llvmbin="${LLVM_BIN}" --sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} --regionAwareModRef --builddir build/ci --statsdir statistics/ci
 
-./benchmark.py --jlm-opt="${JLM_PATH}/build-debug/jlm-opt" --llvmbin="${LLVM_BIN}" \
-	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
-	--regionAwareModRef --builddir build/raware --statsdir statistics/raware-debug \
-	|| true
-
-exit 0
-
 ./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
 	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
 	--regionAwareModRef --builddir build/raware --statsdir statistics/raware \
+	|| true
+
+./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+	--regionAwareModRef --useOs --builddir build/raware-Os --statsdir statistics/raware-Os \
+	|| true
+
+./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+	--regionAwareModRef --useO3 --builddir build/raware-O3 --statsdir statistics/raware-O3 \
+	|| true
+
+./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+	--regionAwareModRef --useMem2reg --builddir build/m2r --statsdir statistics/m2r \
 	|| true
 
 #JLM_DISABLE_EXTERN_COMPRESSION=1 ./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
@@ -332,9 +340,9 @@ exit 0
 #	--regionAwareModRef --builddir build/raware --statsdir statistics/raware-nocompress \
 #	|| true
 
-./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
-	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
-	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r
+#./benchmark.py --jlm-opt="${JLM_PATH}/build-release/jlm-opt" --llvmbin="${LLVM_BIN}" \
+#	--sources="${SOURCES_JSON}" -j="${PARALLEL_INVOCATIONS}" ${EXTRA_BENCH_OPTIONS:-} \
+#	--regionAwareModRef --useMem2reg --builddir build/raware --statsdir statistics/m2r
 
 # Finally run some data aggregation
 just aggregate
